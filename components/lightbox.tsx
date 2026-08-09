@@ -21,6 +21,10 @@ type Props = {
   onChange: (index: number) => void;
 };
 
+function blockSave(e: React.SyntheticEvent) {
+  e.preventDefault();
+}
+
 export function Lightbox({ items, index, onClose, onChange }: Props) {
   const current = items[index];
   const isVideo = current?.mimeType?.startsWith('video/');
@@ -83,7 +87,12 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-md" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-md no-save"
+      onClick={onClose}
+      onContextMenu={blockSave}
+      onDragStart={blockSave}
+    >
       <div
         className="flex items-center justify-between px-4 py-3 text-sm glass-header text-[var(--text)]"
         onClick={(e) => e.stopPropagation()}
@@ -93,16 +102,6 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
           <span className="text-[var(--text-muted)] text-xs">
             {index + 1} / {items.length}
           </span>
-          <a
-            href={displayUrl}
-            download={current.filename}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-ghost !py-1.5 !px-3 text-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            下载
-          </a>
           <button onClick={onClose} className="btn-ghost !py-1.5 !px-3 text-sm">
             关闭
           </button>
@@ -114,6 +113,8 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
+        onContextMenu={blockSave}
+        onDragStart={blockSave}
       >
         {index > 0 && (
           <button
@@ -130,8 +131,13 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
             key={current.id}
             src={current.url}
             controls
+            controlsList="nodownload noplaybackrate"
+            disablePictureInPicture
             autoPlay
+            playsInline
             className="max-h-[calc(100vh-100px)] max-w-full rounded-2xl shadow-2xl"
+            onContextMenu={blockSave}
+            onDragStart={blockSave}
           />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
@@ -141,6 +147,8 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
             alt={current.filename}
             className="max-h-[calc(100vh-100px)] max-w-full object-contain select-none rounded-2xl shadow-2xl"
             draggable={false}
+            onContextMenu={blockSave}
+            onDragStart={blockSave}
           />
         )}
 

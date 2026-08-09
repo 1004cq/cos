@@ -149,8 +149,10 @@ export default function AlbumViewPage({ params }: { params: Promise<{ id: string
               <button
                 key={item.id}
                 type="button"
-                className="media-tile"
+                className="media-tile no-save"
                 onClick={() => setLightboxIndex(i)}
+                onContextMenu={(e) => e.preventDefault()}
+                onDragStart={(e) => e.preventDefault()}
               >
                 {isVideo ? (
                   <div
@@ -161,7 +163,12 @@ export default function AlbumViewPage({ params }: { params: Promise<{ id: string
                   </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.url} alt={item.filename} loading="lazy" />
+                  <img
+                    src={item.url}
+                    alt={item.filename}
+                    loading="lazy"
+                    draggable={false}
+                  />
                 )}
               </button>
             );

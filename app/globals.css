@@ -144,3 +144,21 @@ body::before {
     min-height: 44px;
   }
 }
+
+/* 手机端防长按保存 / 禁止拖拽下载（不降低画质） */
+.no-save {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.no-save img,
+.no-save video {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+/* 灯箱内带控件的视频仍需可点按播放 */
+.no-save video[controls] {
+  pointer-events: auto;
+}

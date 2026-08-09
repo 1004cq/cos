@@ -173,8 +173,10 @@ export default function HomePage() {
                       <button
                         key={item.id}
                         type="button"
-                        className="media-tile"
+                        className="media-tile no-save"
                         onClick={() => openItem(item)}
+                        onContextMenu={(e) => e.preventDefault()}
+                        onDragStart={(e) => e.preventDefault()}
                         aria-label={item.filename}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -183,6 +185,7 @@ export default function HomePage() {
                           alt={item.filename}
                           loading="lazy"
                           decoding="async"
+                          draggable={false}
                         />
                       </button>
                     ))}
@@ -212,8 +215,10 @@ export default function HomePage() {
                       <button
                         key={item.id}
                         type="button"
-                        className="glass rounded-2xl overflow-hidden text-left group min-h-[44px]"
+                        className="glass rounded-2xl overflow-hidden text-left group min-h-[44px] no-save"
                         onClick={() => openItem(item)}
+                        onContextMenu={(e) => e.preventDefault()}
+                        onDragStart={(e) => e.preventDefault()}
                         aria-label={`播放 ${item.filename}`}
                       >
                         <div className="relative aspect-video bg-black/5">
@@ -223,6 +228,9 @@ export default function HomePage() {
                             muted
                             playsInline
                             preload="metadata"
+                            controlsList="nodownload"
+                            disablePictureInPicture
+                            onContextMenu={(e) => e.preventDefault()}
                           />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
                             <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg">

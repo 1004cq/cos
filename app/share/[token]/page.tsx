@@ -123,8 +123,10 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
               <button
                 key={item.id}
                 type="button"
-                className="media-tile"
+                className="media-tile no-save"
                 onClick={() => setLightboxIndex(i)}
+                onContextMenu={(e) => e.preventDefault()}
+                onDragStart={(e) => e.preventDefault()}
               >
                 {isVideo ? (
                   <div
@@ -139,6 +141,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                     src={item.thumbUrl || item.url}
                     alt={item.filename}
                     loading="lazy"
+                    draggable={false}
                   />
                 )}
               </button>
