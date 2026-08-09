@@ -31,9 +31,7 @@ export default function TimelinePage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/admin/login');
-    }
+    if (status === 'unauthenticated') router.push('/admin/login');
   }, [status, router]);
 
   useEffect(() => {
@@ -78,8 +76,8 @@ export default function TimelinePage() {
 
   if (status === 'loading' || status === 'unauthenticated') {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <p className="text-zinc-400">加载中...</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <p style={{ color: 'var(--text-muted)' }}>加载中...</p>
       </div>
     );
   }
@@ -94,43 +92,46 @@ export default function TimelinePage() {
   const months = Object.keys(groups).sort((a, b) => b.localeCompare(a));
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
-      <header className="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-10 glass-header px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">陈庆.我爱你</h1>
-          <p className="text-xs text-zinc-500">时间轴 · {items.length} 项</p>
+          <h1 className="text-lg font-semibold tracking-tight">陈庆.我爱你</h1>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            时间轴 · {items.length} 项
+          </p>
         </div>
         <div className="flex gap-2 text-sm">
-          <Link
-            href="/admin/upload"
-            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 transition"
-          >
+          <Link href="/admin/upload" className="btn-primary !py-1.5 !px-3">
             上传
           </Link>
-          <Link
-            href="/admin/login"
-            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition"
-          >
+          <Link href="/admin/login" className="btn-ghost !py-1.5 !px-3">
             管理
           </Link>
         </div>
       </header>
 
       {loading ? (
-        <p className="text-center text-zinc-500 py-20">加载中...</p>
+        <p className="text-center py-20" style={{ color: 'var(--text-muted)' }}>
+          加载中...
+        </p>
       ) : items.length === 0 ? (
         <div className="text-center py-20 space-y-4">
-          <p className="text-zinc-500">还没有照片</p>
-          <Link href="/admin/upload" className="text-blue-400 hover:underline">
+          <p style={{ color: 'var(--text-muted)' }}>还没有照片</p>
+          <Link href="/admin/upload" className="text-blue-600 hover:underline">
             去上传
           </Link>
         </div>
       ) : (
-        <div className="pb-10">
+        <div className="pb-10 px-2">
           {months.map((month) => (
             <section key={month} className="mt-6">
-              <h2 className="px-4 mb-2 text-sm font-medium text-zinc-400">{month}</h2>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1 px-1">
+              <h2
+                className="px-2 mb-3 text-sm font-medium"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {month}
+              </h2>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
                 {groups[month].map((item) => {
                   const globalIndex = items.findIndex((x) => x.id === item.id);
                   const isVideo = item.mimeType.startsWith('video/');
@@ -138,21 +139,19 @@ export default function TimelinePage() {
                     <button
                       key={item.id}
                       type="button"
-                      className="relative aspect-square bg-zinc-900 overflow-hidden"
+                      className="media-tile"
                       onClick={() => setLightboxIndex(globalIndex)}
                     >
                       {isVideo ? (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                        <div
+                          className="w-full h-full flex items-center justify-center"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
                           <span className="text-2xl">▶</span>
                         </div>
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.url}
-                          alt={item.filename}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
+                        <img src={item.url} alt={item.filename} loading="lazy" />
                       )}
                     </button>
                   );
