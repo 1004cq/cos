@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getCosConfig, getCosConfigPublic, saveCosConfig } from '@/lib/settings';
+import { formatCosError } from '@/lib/cos-errors';
 import COS from 'cos-nodejs-sdk-v5';
 
 /** 读取当前 COS 配置（密钥脱敏） */
@@ -40,18 +41,17 @@ export async function PUT(req: NextRequest) {
       thumbWidth: thumbWidth != null ? Number(thumbWidth) : undefined,
     });
 
-    // 可选：保存后测连通性
+    const config = await getCosConfigPublic();
+
     if (test) {
-      const ok = await testCosConnection();
-      const config = await getCosConfigPublic();
-      return NextResponse.json({ ...config, test: ok });
+      const testResult = await testCosConnection();
+      return NextResponse.json({ ...config, test: testResult });
     }
 
-    const config = await getCosConfigPublic();
     return NextResponse.json(config);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '保存失败';
-    console.error('save cos settings error:', error);
+    console.error('save cos settings error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -64,13 +64,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '未登录' }, { status: 401 });
     }
 
-    // 允许用请求体临时参数测试（未保存）
     const body = await req.json().catch(() => ({}));
     const result = await testCosConnection(body);
-    return NextResponse.json(result);
+    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '测试失败';
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: formatCosError(error) },
+      { status: 500 }
+    );
   }
 }
 
@@ -81,7 +82,10 @@ async function testCosConnection(override?: {
   region?: string;
 }) {
   const cfg = await getCosConfig();
-  const secretId = override?.secretId?.trim() || cfg.secretId;
+  const secretId =
+    override?.secretId && !String(override.secretId).includes('****')
+      ? override.secretId.trim()
+      : cfg.secretId;
   const secretKey =
     override?.secretKey && !String(override.secretKey).includes('****')
       ? override.secretKey.trim()
@@ -95,12 +99,15 @@ async function testCosConnection(override?: {
 
   const cos = new COS({ SecretId: secretId, SecretKey: secretKey });
 
-  await new Promise<void>((resolve, reject) => {
-    cos.headBucket({ Bucket: bucket, Region: region }, (err) => {
-      if (err) reject(err);
-      else resolve();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      cos.headBucket({ Bucket: bucket, Region: region }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
-  });
-
-  return { ok: true, bucket, region };
+    return { ok: true, bucket, region };
+  } catch (err) {
+    return { ok: false, error: formatCosError(err), bucket, region };
+  }
 }

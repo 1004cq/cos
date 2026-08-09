@@ -147,7 +147,10 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   };
 
   if (input.secretId !== undefined && input.secretId.trim()) {
-    await upsert('cos.secretId', input.secretId.trim(), true);
+    // 含 **** 的脱敏串视为未修改
+    if (!input.secretId.includes('****')) {
+      await upsert('cos.secretId', input.secretId.trim(), true);
+    }
   }
   if (input.secretKey !== undefined && input.secretKey.trim()) {
     // 含 **** 的脱敏串视为未修改
