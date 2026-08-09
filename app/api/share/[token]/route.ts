@@ -1,9 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
 import { getSignedUrl } from '@/lib/cos';
 
 type Params = { params: Promise<{ token: string }> };
+
+/** 删除分享（按 token 或 id，需登录） */
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
+
+    const { token } = await params;
+
+    const existing = await prisma.shareLink.findFirst({
+      where: {
+        OR: [{ token }, { id: token }],
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: '分享不存在' }, { status: 404 });
+    }
+
+    await prisma.shareLink.delete({ where: { id: existing.id } });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '删除失败';
+    console.error('delete share error:', error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 /**
  * 获取分享内容

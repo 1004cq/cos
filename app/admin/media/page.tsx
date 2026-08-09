@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LayoutGrid, List, Search, Trash2, FolderInput } from 'lucide-react';
+import { LayoutGrid, List, Search, Trash2, FolderInput, Share2 } from 'lucide-react';
 import { formatBytes, formatDateTime, mapWithConcurrency, cn } from '@/lib/utils';
+import { ShareCreateDialog } from '@/components/share-create-dialog';
 
 type Album = {
   id: string;
@@ -35,6 +36,7 @@ export default function AdminMediaPage() {
   const [moveAlbumId, setMoveAlbumId] = useState('');
   const [busy, setBusy] = useState(false);
   const [deleteCos, setDeleteCos] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const loadThumbs = useCallback(async (media: MediaItem[]) => {
     const images = media.filter((m) => m.mimeType.startsWith('image/'));
@@ -108,22 +110,35 @@ export default function AdminMediaPage() {
     });
   }
 
-  async function handleDelete(ids: string[]) {
+  function toggleSelectAll() {
+    if (selected.size === items.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(items.map((i) => i.id)));
+    }
+  }
+
+  async function handleBatchDelete(ids: string[]) {
     if (ids.length === 0) return;
     const tip = deleteCos
-      ? `确定删除 ${ids.length} 项媒体？将同时尝试删除 COS 对象。`
+      ? `确定删除 ${ids.length} 项媒体？将先删除 COS 对象，失败则中止。`
       : `确定删除 ${ids.length} 项媒体？仅删除数据库记录。`;
     if (!confirm(tip)) return;
 
     setBusy(true);
     setError('');
     try {
-      for (const id of ids) {
-        const qs = deleteCos ? '?deleteFromCos=1' : '';
-        const res = await fetch(`/api/media/${id}${qs}`, { method: 'DELETE' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '删除失败');
-      }
+      const res = await fetch('/api/media/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          ids,
+          deleteFromCos: deleteCos,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '删除失败');
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '删除失败');
@@ -132,26 +147,32 @@ export default function AdminMediaPage() {
     }
   }
 
-  async function handleMove() {
+  async function handleBatchMove() {
     const ids = Array.from(selected);
     if (ids.length === 0) {
       setError('请先选择媒体');
       return;
     }
 
+    const albumLabel = moveAlbumId
+      ? albums.find((a) => a.id === moveAlbumId)?.title || '目标相册'
+      : '未归类';
+    if (!confirm(`将 ${ids.length} 项移至「${albumLabel}」？`)) return;
+
     setBusy(true);
     setError('');
     try {
-      const albumId = moveAlbumId || null;
-      for (const id of ids) {
-        const res = await fetch(`/api/media/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ albumId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '移动失败');
-      }
+      const res = await fetch('/api/media/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'move',
+          ids,
+          albumId: moveAlbumId || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '移动失败');
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '移动失败');
@@ -172,7 +193,7 @@ export default function AdminMediaPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">媒体库</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            共 {total} 项 · 支持搜索、移入相册、删除
+            共 {total} 项 · 多选后可批量移入相册、删除或生成分享
           </p>
         </div>
         <div className="flex gap-1 rounded-xl glass p-1">
@@ -220,6 +241,15 @@ export default function AdminMediaPage() {
       </form>
 
       <div className="rounded-2xl glass p-3 flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={items.length > 0 && selected.size === items.length}
+            onChange={toggleSelectAll}
+            disabled={items.length === 0}
+          />
+          全选本页
+        </label>
         <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
           已选 {selected.size}
         </span>
@@ -238,11 +268,20 @@ export default function AdminMediaPage() {
         <button
           type="button"
           disabled={busy || selected.size === 0}
-          onClick={() => void handleMove()}
+          onClick={() => void handleBatchMove()}
           className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
         >
           <FolderInput className="w-4 h-4" />
-          移入相册
+          批量移入
+        </button>
+        <button
+          type="button"
+          disabled={busy || selected.size === 0}
+          onClick={() => setShareOpen(true)}
+          className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <Share2 className="w-4 h-4" />
+          生成分享
         </button>
         <label className="flex items-center gap-1.5 text-xs cursor-pointer ml-auto">
           <input
@@ -255,11 +294,11 @@ export default function AdminMediaPage() {
         <button
           type="button"
           disabled={busy || selected.size === 0}
-          onClick={() => void handleDelete(Array.from(selected))}
+          onClick={() => void handleBatchDelete(Array.from(selected))}
           className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 text-red-600 disabled:opacity-50"
         >
           <Trash2 className="w-4 h-4" />
-          删除
+          批量删除
         </button>
       </div>
 
@@ -346,7 +385,7 @@ export default function AdminMediaPage() {
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void handleDelete([item.id])}
+                onClick={() => void handleBatchDelete([item.id])}
                 className="btn-ghost !p-2 text-red-600 disabled:opacity-50"
                 aria-label="删除"
               >
@@ -380,6 +419,13 @@ export default function AdminMediaPage() {
           </button>
         </div>
       )}
+
+      <ShareCreateDialog
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        mediaIds={Array.from(selected)}
+        title={`分享已选 ${selected.size} 项`}
+      />
     </div>
   );
 }

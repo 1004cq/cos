@@ -98,25 +98,25 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: '媒体不存在' }, { status: 404 });
     }
 
-    await prisma.media.delete({ where: { id } });
-
-    let cosDeleted = false;
-    let cosError: string | null = null;
-
+    // 先删 COS，失败则不删 DB，避免静默成功留下孤儿状态不清
     if (deleteFromCos) {
       try {
         await deleteObject(media.key);
-        cosDeleted = true;
       } catch (err: unknown) {
-        cosError = err instanceof Error ? err.message : 'COS 删除失败';
+        const cosError = err instanceof Error ? err.message : 'COS 删除失败';
         console.error('delete cos object error:', err);
+        return NextResponse.json(
+          { error: `COS 删除失败，已中止：${cosError}`, cosDeleted: false },
+          { status: 502 }
+        );
       }
     }
 
+    await prisma.media.delete({ where: { id } });
+
     return NextResponse.json({
       success: true,
-      cosDeleted,
-      cosError,
+      cosDeleted: deleteFromCos,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '删除失败';

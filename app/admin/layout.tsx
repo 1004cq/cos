@@ -9,6 +9,7 @@ import {
   Upload,
   Images,
   FolderOpen,
+  Share2,
   Home,
   LogOut,
   Menu,
@@ -26,6 +27,7 @@ const NAV: {
   { href: '/admin/upload', label: '上传', icon: Upload },
   { href: '/admin/albums', label: '相册', icon: FolderOpen },
   { href: '/admin/media', label: '媒体库', icon: Images },
+  { href: '/admin/share', label: '分享', icon: Share2 },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

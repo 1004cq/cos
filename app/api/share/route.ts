@@ -5,6 +5,49 @@ import { prisma } from '@/lib/prisma';
 import { randomBytes } from 'crypto';
 import { hash } from 'bcryptjs';
 
+/** 分享列表（需登录） */
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
+
+    const shares = await prisma.shareLink.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const albumIds = [...new Set(shares.map((s) => s.albumId).filter(Boolean))] as string[];
+    const albums =
+      albumIds.length > 0
+        ? await prisma.album.findMany({
+            where: { id: { in: albumIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+    const albumMap = new Map(albums.map((a) => [a.id, a.title]));
+
+    return NextResponse.json(
+      shares.map((s) => ({
+        id: s.id,
+        token: s.token,
+        albumId: s.albumId,
+        albumTitle: s.albumId ? albumMap.get(s.albumId) || null : null,
+        mediaCount: s.mediaIds.length,
+        hasPassword: Boolean(s.password),
+        expiresAt: s.expiresAt,
+        createdAt: s.createdAt,
+        url: `/share/${s.token}`,
+        expired: Boolean(s.expiresAt && s.expiresAt.getTime() < Date.now()),
+      }))
+    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '获取失败';
+    console.error('list share error:', error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 /**
  * 创建分享链接
  * Body:
@@ -25,6 +68,17 @@ export async function POST(req: NextRequest) {
 
     if (!albumId && (!mediaIds || mediaIds.length === 0)) {
       return NextResponse.json({ error: '必须指定 albumId 或 mediaIds' }, { status: 400 });
+    }
+
+    if (albumId && typeof albumId === 'string') {
+      const album = await prisma.album.findUnique({ where: { id: albumId } });
+      if (!album) {
+        return NextResponse.json({ error: '相册不存在' }, { status: 400 });
+      }
+    }
+
+    if (mediaIds && (!Array.isArray(mediaIds) || mediaIds.some((id) => typeof id !== 'string'))) {
+      return NextResponse.json({ error: 'mediaIds 无效' }, { status: 400 });
     }
 
     const token = randomBytes(24).toString('hex');
@@ -56,8 +110,9 @@ export async function POST(req: NextRequest) {
       expiresAt: share.expiresAt,
       hasPassword: Boolean(hashedPassword),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '创建分享失败';
     console.error('create share error:', error);
-    return NextResponse.json({ error: error.message || '创建分享失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

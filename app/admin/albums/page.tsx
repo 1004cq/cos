@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import Link from 'next/link';
+import { Pencil, Plus, Share2, Trash2, X } from 'lucide-react';
 import { mapWithConcurrency } from '@/lib/utils';
+import { ShareCreateDialog } from '@/components/share-create-dialog';
 
 type Album = {
   id: string;
@@ -33,6 +35,7 @@ export default function AdminAlbumsPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [shareAlbum, setShareAlbum] = useState<Album | null>(null);
 
   const loadCovers = useCallback(async (list: Album[]) => {
     const withCover = list.filter((a) => a.coverKey);
@@ -173,7 +176,7 @@ export default function AdminAlbumsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {albums.map((album) => (
             <article key={album.id} className="rounded-3xl glass overflow-hidden flex flex-col">
-              <div className="aspect-[16/10] bg-white/40 relative">
+              <Link href={`/admin/albums/${album.id}`} className="aspect-[16/10] bg-white/40 relative block">
                 {covers[album.id] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -189,10 +192,12 @@ export default function AdminAlbumsPage() {
                     无封面
                   </div>
                 )}
-              </div>
+              </Link>
               <div className="p-4 flex-1 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="font-semibold truncate">{album.title}</h2>
+                  <Link href={`/admin/albums/${album.id}`} className="font-semibold truncate hover:underline">
+                    {album.title}
+                  </Link>
                   <span
                     className="text-xs shrink-0 px-2 py-0.5 rounded-lg bg-white/60"
                     style={{ color: 'var(--text-muted)' }}
@@ -205,7 +210,21 @@ export default function AdminAlbumsPage() {
                     {album.description}
                   </p>
                 )}
-                <div className="mt-auto pt-2 flex gap-2">
+                <div className="mt-auto pt-2 flex flex-wrap gap-2">
+                  <Link
+                    href={`/admin/albums/${album.id}`}
+                    className="btn-ghost !py-1.5 !px-3 text-sm"
+                  >
+                    详情
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setShareAlbum(album)}
+                    className="btn-ghost !py-1.5 !px-3 text-sm inline-flex items-center gap-1"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    分享
+                  </button>
                   <button
                     type="button"
                     onClick={() => openEdit(album)}
@@ -228,6 +247,13 @@ export default function AdminAlbumsPage() {
           ))}
         </div>
       )}
+
+      <ShareCreateDialog
+        open={Boolean(shareAlbum)}
+        onClose={() => setShareAlbum(null)}
+        albumId={shareAlbum?.id}
+        title={shareAlbum ? `分享相册：${shareAlbum.title}` : '生成分享'}
+      />
 
       {modalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/25 backdrop-blur-sm">

@@ -51,7 +51,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (title !== undefined) data.title = String(title).trim();
     if (description !== undefined) data.description = description;
     if (isPublic !== undefined) data.isPublic = Boolean(isPublic);
-    if (coverKey !== undefined) data.coverKey = coverKey;
+    if (coverKey !== undefined) {
+      if (coverKey === null || coverKey === '') {
+        data.coverKey = null;
+      } else if (typeof coverKey === 'string' && coverKey.startsWith('media/')) {
+        data.coverKey = coverKey;
+      } else {
+        return NextResponse.json({ error: 'coverKey 非法' }, { status: 400 });
+      }
+    }
     if (sortOrder !== undefined) data.sortOrder = Number(sortOrder);
 
     const album = await prisma.album.update({
