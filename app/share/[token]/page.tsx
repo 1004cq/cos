@@ -123,8 +123,10 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
               <button
                 key={item.id}
                 type="button"
-                className="media-tile"
+                className="media-tile no-save"
                 onClick={() => setLightboxIndex(i)}
+                onContextMenu={(e) => e.preventDefault()}
+                onDragStart={(e) => e.preventDefault()}
               >
                 {isVideo ? (
                   <div
@@ -134,11 +136,12 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                     <span className="text-3xl">▶</span>
                   </div>
                 ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.thumbUrl || item.url}
-                    alt={item.filename}
-                    loading="lazy"
+                  <div
+                    className="media-cover"
+                    style={{
+                      backgroundImage: `url(${JSON.stringify(item.thumbUrl || item.url)})`,
+                    }}
+                    aria-hidden
                   />
                 )}
               </button>
