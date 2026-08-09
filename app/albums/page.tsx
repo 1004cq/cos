@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { mapWithConcurrency } from '@/lib/utils';
+import { fetchSignedUrl } from '@/lib/sign-client';
 
 type Album = {
   id: string;
@@ -43,14 +44,8 @@ export default function AlbumsPage() {
 
         const withCover = list.filter((a) => a.coverKey);
         const signed = await mapWithConcurrency(withCover, 4, async (album) => {
-          try {
-            const sRes = await fetch(`/api/sign?key=${encodeURIComponent(album.coverKey!)}`);
-            if (!sRes.ok) return null;
-            const sData = await sRes.json();
-            return { id: album.id, url: sData.url as string };
-          } catch {
-            return null;
-          }
+          const url = await fetchSignedUrl(album.coverKey!, { thumb: true });
+          return url ? { id: album.id, url } : null;
         });
         const map: Record<string, string> = {};
         for (const item of signed) {

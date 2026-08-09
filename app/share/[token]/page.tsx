@@ -7,6 +7,7 @@ type MediaItem = LightboxItem & {
   size: number;
   duration?: number | null;
   takenAt?: string | null;
+  thumbUrl?: string;
 };
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
@@ -134,7 +135,11 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                   </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.url} alt={item.filename} loading="lazy" />
+                  <img
+                    src={item.thumbUrl || item.url}
+                    alt={item.filename}
+                    loading="lazy"
+                  />
                 )}
               </button>
             );

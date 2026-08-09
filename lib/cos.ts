@@ -1,6 +1,7 @@
 import COS from 'cos-nodejs-sdk-v5';
+import { getUploadStsCredential, isStsEnabled } from './sts';
 
-const cos = new COS({
+const permanentCos = new COS({
   SecretId: process.env.COS_SECRET_ID!,
   SecretKey: process.env.COS_SECRET_KEY!,
 });
@@ -9,93 +10,125 @@ const Bucket = process.env.COS_BUCKET!;
 const Region = process.env.COS_REGION!;
 const CDN = process.env.COS_CDN_DOMAIN; // 例如：陈庆.我爱你
 
-/**
- * 生成上传预签名 URL（PUT）
- * 前端拿到后直接 PUT 文件到 COS，不经过自己服务器
- *
- * 安全建议：
- * - 默认有效期 5 分钟，尽量短
- * - 强制签入 Content-Type，减少被滥用空间
- * - 后续可升级为 STS 临时密钥生成
- */
-export function getUploadPresignedUrl(
-  key: string,
-  contentType: string,
-  expires = 300 // 默认 5 分钟
-): Promise<{ url: string }> {
-  // 安全：只允许上传到 media/ 目录
-  if (!key.startsWith('media/')) {
-    return Promise.reject(new Error('非法的上传路径'));
-  }
+/** 列表缩略图默认宽度（数据万象 imageMogr2） */
+export const THUMB_WIDTH = Math.min(
+  1200,
+  Math.max(120, parseInt(process.env.COS_THUMB_WIDTH || '480', 10) || 480)
+);
 
+export type SignOptions = {
+  /** 生成列表用缩略图（WebP），灯箱/下载勿开 */
+  thumb?: boolean;
+  /** 缩略图最大宽度，默认 COS_THUMB_WIDTH / 480 */
+  thumbWidth?: number;
+};
+
+function applyCdnHost(url: string): string {
+  if (!CDN) return url;
+  try {
+    const u = new URL(url);
+    u.host = CDN;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+function getObjectUrlWithClient(
+  client: COS,
+  key: string,
+  method: 'GET' | 'PUT',
+  expires: number,
+  extra?: { headers?: Record<string, string>; query?: Record<string, string> }
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    cos.getObjectUrl(
+    client.getObjectUrl(
       {
         Bucket,
         Region,
         Key: key,
-        Method: 'PUT',
+        Method: method,
         Sign: true,
         Expires: expires,
-        Headers: {
-          'Content-Type': contentType,
-        },
+        Headers: extra?.headers,
+        Query: extra?.query,
       },
       (err, data) => {
         if (err) return reject(err);
-        resolve({ url: data.Url });
+        resolve(applyCdnHost(data.Url));
       }
     );
   });
 }
 
 /**
- * 生成访问签名 URL（GET）
- * 所有前台展示图片/视频都必须走这个方法（通过 /api/sign 调用）
- *
- * 安全建议：
- * - 默认 30 分钟
- * - 最大不要超过 1 小时
- * - 优先走 CDN 域名
+ * 生成上传预签名 URL（PUT）
+ * 若 STS 可用：用临时密钥签名（长期 SecretKey 仅用于换票）
+ * 否则：回退永久密钥签名
  */
-export function getSignedUrl(key: string, expires = 1800): Promise<string> {
+export async function getUploadPresignedUrl(
+  key: string,
+  contentType: string,
+  expires = 300
+): Promise<{ url: string; viaSts: boolean }> {
   if (!key.startsWith('media/')) {
-    return Promise.reject(new Error('非法的对象键'));
+    throw new Error('非法的上传路径');
   }
 
-  // 限制最大有效期 1 小时
-  const safeExpires = Math.min(Math.max(expires, 60), 3600);
+  const safeExpires = Math.min(Math.max(expires, 60), 600);
 
-  return new Promise((resolve, reject) => {
-    cos.getObjectUrl(
-      {
-        Bucket,
-        Region,
-        Key: key,
-        Method: 'GET',
-        Sign: true,
-        Expires: safeExpires,
-      },
-      (err, data) => {
-        if (err) return reject(err);
+  if (isStsEnabled()) {
+    try {
+      const sts = await getUploadStsCredential(Math.max(safeExpires + 60, 900));
+      const tempCos = new COS({
+        SecretId: sts.credentials.tmpSecretId,
+        SecretKey: sts.credentials.tmpSecretKey,
+        SecurityToken: sts.credentials.sessionToken,
+      });
+      const url = await getObjectUrlWithClient(tempCos, key, 'PUT', safeExpires, {
+        headers: { 'Content-Type': contentType },
+      });
+      return { url, viaSts: true };
+    } catch (err) {
+      console.warn('STS 预签名失败，回退永久密钥:', err);
+    }
+  }
 
-        let url = data.Url;
-
-        // 如果配置了 CDN / 自定义域名，替换 host
-        if (CDN) {
-          try {
-            const u = new URL(url);
-            u.host = CDN;
-            url = u.toString();
-          } catch {
-            // 忽略替换失败，使用原始签名地址
-          }
-        }
-
-        resolve(url);
-      }
-    );
+  const url = await getObjectUrlWithClient(permanentCos, key, 'PUT', safeExpires, {
+    headers: { 'Content-Type': contentType },
   });
+  return { url, viaSts: false };
+}
+
+/**
+ * 生成访问签名 URL（GET）
+ * thumb=true 时附带数据万象缩略参数（需桶开通图片处理）
+ */
+export async function getSignedUrl(
+  key: string,
+  expires = 1800,
+  options?: SignOptions
+): Promise<string> {
+  if (!key.startsWith('media/')) {
+    throw new Error('非法的对象键');
+  }
+
+  const safeExpires = Math.min(Math.max(expires, 60), 3600);
+  const query: Record<string, string> = {};
+
+  if (options?.thumb) {
+    const w = options.thumbWidth ?? THUMB_WIDTH;
+    // 限制最长边，转 WebP，降低列表带宽
+    query[`imageMogr2/thumbnail/${w}x${w}>/format/webp`] = '';
+  }
+
+  return getObjectUrlWithClient(
+    permanentCos,
+    key,
+    'GET',
+    safeExpires,
+    Object.keys(query).length > 0 ? { query } : undefined
+  );
 }
 
 /**
@@ -122,7 +155,7 @@ export function deleteObject(key: string): Promise<void> {
   }
 
   return new Promise((resolve, reject) => {
-    cos.deleteObject(
+    permanentCos.deleteObject(
       {
         Bucket,
         Region,
@@ -136,4 +169,4 @@ export function deleteObject(key: string): Promise<void> {
   });
 }
 
-export { cos, Bucket, Region };
+export { permanentCos as cos, Bucket, Region };

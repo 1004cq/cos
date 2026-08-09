@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LayoutGrid, List, Search, Trash2, FolderInput, Share2 } from 'lucide-react';
 import { formatBytes, formatDateTime, mapWithConcurrency, cn } from '@/lib/utils';
+import { fetchSignedUrl } from '@/lib/sign-client';
 import { ShareCreateDialog } from '@/components/share-create-dialog';
 
 type Album = {
@@ -41,14 +42,8 @@ export default function AdminMediaPage() {
   const loadThumbs = useCallback(async (media: MediaItem[]) => {
     const images = media.filter((m) => m.mimeType.startsWith('image/'));
     const signed = await mapWithConcurrency(images, 6, async (m) => {
-      try {
-        const res = await fetch(`/api/sign?key=${encodeURIComponent(m.key)}`);
-        if (!res.ok) return null;
-        const data = await res.json();
-        return { id: m.id, url: data.url as string };
-      } catch {
-        return null;
-      }
+      const url = await fetchSignedUrl(m.key, { thumb: true });
+      return url ? { id: m.id, url } : null;
     });
     const map: Record<string, string> = {};
     for (const item of signed) {

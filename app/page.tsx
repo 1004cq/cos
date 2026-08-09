@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Lightbox, type LightboxItem } from '@/components/lightbox';
 import Link from 'next/link';
 import { mapWithConcurrency } from '@/lib/utils';
+import { fetchSignedUrl } from '@/lib/sign-client';
 
 type MediaRow = {
   id: string;
@@ -20,6 +21,7 @@ type MediaRow = {
 };
 
 type TimelineItem = LightboxItem & {
+  key: string;
   takenAt?: string | null;
   createdAt: string;
 };
@@ -54,12 +56,13 @@ export default function TimelinePage() {
         const media: MediaRow[] = data.items || [];
 
         const signed = await mapWithConcurrency(media, SIGN_CONCURRENCY, async (m) => {
-          const sRes = await fetch(`/api/sign?key=${encodeURIComponent(m.key)}`);
-          if (!sRes.ok) return null;
-          const sData = await sRes.json();
+          const isImage = m.mimeType.startsWith('image/');
+          const url = await fetchSignedUrl(m.key, { thumb: isImage });
+          if (!url) return null;
           return {
             id: m.id,
-            url: sData.url as string,
+            key: m.key,
+            url,
             filename: m.filename,
             mimeType: m.mimeType,
             width: m.width,

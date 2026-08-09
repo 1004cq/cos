@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { isStsEnabled } from '@/lib/sts';
 
 export async function GET() {
   const checks: Record<string, boolean | string> = {
     database: false,
     cosConfig: false,
     authSecret: false,
+    stsEnabled: false,
   };
 
   try {
@@ -23,6 +25,7 @@ export async function GET() {
   );
 
   checks.authSecret = Boolean(process.env.NEXTAUTH_SECRET);
+  checks.stsEnabled = isStsEnabled();
 
   const ok = checks.database && checks.cosConfig && checks.authSecret;
 

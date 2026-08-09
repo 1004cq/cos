@@ -23,14 +23,16 @@ export async function POST(req: NextRequest) {
     }
 
     const key = generateKey(filename);
-    const { url } = await getUploadPresignedUrl(key, contentType, 600);
+    const { url, viaSts } = await getUploadPresignedUrl(key, contentType, 600);
 
     return NextResponse.json({
       url,
       key,
+      viaSts,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '生成预签名失败';
     console.error('presign error:', error);
-    return NextResponse.json({ error: error.message || '生成预签名失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

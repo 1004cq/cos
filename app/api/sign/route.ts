@@ -11,6 +11,7 @@ import { prisma } from '@/lib/prisma';
  * Query:
  *   key      - COS 对象键（必填）
  *   expires  - 有效期秒数，默认 1800（30分钟），最大 3600
+ *   thumb    - 1/true 时返回数据万象缩略图（列表用）；灯箱请勿传
  */
 export async function GET(req: NextRequest) {
   try {
@@ -18,29 +19,26 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const key = searchParams.get('key');
     const expiresParam = searchParams.get('expires');
+    const thumbParam = searchParams.get('thumb');
 
     if (!key) {
       return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
     }
 
-    // 安全：只允许访问 media/ 前缀，防止越权访问其他目录
     if (!key.startsWith('media/')) {
       return NextResponse.json({ error: '非法的对象键' }, { status: 403 });
     }
 
-    // 校验媒体是否存在于数据库（可选但推荐）
     const media = await prisma.media.findUnique({ where: { key } });
     if (!media) {
       return NextResponse.json({ error: '媒体不存在' }, { status: 404 });
     }
 
-    // 权限：已登录管理员 或 后续可扩展分享 token
-    // 当前 Phase：要求登录。分享场景在 Phase 3 扩展
     if (!session) {
       return NextResponse.json({ error: '未登录' }, { status: 401 });
     }
 
-    let expires = 1800; // 默认 30 分钟
+    let expires = 1800;
     if (expiresParam) {
       const n = parseInt(expiresParam, 10);
       if (!isNaN(n) && n > 0 && n <= 3600) {
@@ -48,15 +46,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const url = await getSignedUrl(key, expires);
+    const wantThumb =
+      thumbParam === '1' || thumbParam === 'true' || thumbParam === 'yes';
+    // 视频不走图片处理
+    const thumb = wantThumb && media.mimeType.startsWith('image/');
+
+    const url = await getSignedUrl(key, expires, { thumb });
 
     return NextResponse.json({
       url,
       expires,
       expiresAt: Date.now() + expires * 1000,
+      thumb,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '生成签名失败';
     console.error('sign error:', error);
-    return NextResponse.json({ error: error.message || '生成签名失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

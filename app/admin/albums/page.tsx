@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Pencil, Plus, Share2, Trash2, X } from 'lucide-react';
 import { mapWithConcurrency } from '@/lib/utils';
+import { fetchSignedUrl } from '@/lib/sign-client';
 import { ShareCreateDialog } from '@/components/share-create-dialog';
 
 type Album = {
@@ -40,14 +41,8 @@ export default function AdminAlbumsPage() {
   const loadCovers = useCallback(async (list: Album[]) => {
     const withCover = list.filter((a) => a.coverKey);
     const signed = await mapWithConcurrency(withCover, 4, async (album) => {
-      try {
-        const res = await fetch(`/api/sign?key=${encodeURIComponent(album.coverKey!)}`);
-        if (!res.ok) return null;
-        const data = await res.json();
-        return { id: album.id, url: data.url as string };
-      } catch {
-        return null;
-      }
+      const url = await fetchSignedUrl(album.coverKey!, { thumb: true });
+      return url ? { id: album.id, url } : null;
     });
 
     const map: Record<string, string> = {};
