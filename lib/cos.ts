@@ -1,33 +1,40 @@
 import COS from 'cos-nodejs-sdk-v5';
-import { getUploadStsCredential, isStsEnabled } from './sts';
+import { getCosConfig, type CosRuntimeConfig } from './settings';
 
-const permanentCos = new COS({
-  SecretId: process.env.COS_SECRET_ID!,
-  SecretKey: process.env.COS_SECRET_KEY!,
-});
+// STS 可选：若项目有 lib/sts.ts 可再接入
+let stsModule: {
+  getUploadStsCredential?: (s: number) => Promise<any>;
+  isStsEnabled?: () => boolean;
+} | null = null;
 
-const Bucket = process.env.COS_BUCKET!;
-const Region = process.env.COS_REGION!;
-const CDN = process.env.COS_CDN_DOMAIN; // 例如：陈庆.我爱你
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  stsModule = require('./sts');
+} catch {
+  stsModule = null;
+}
 
-/** 列表缩略图默认宽度（数据万象 imageMogr2） */
-export const THUMB_WIDTH = Math.min(
-  1200,
-  Math.max(120, parseInt(process.env.COS_THUMB_WIDTH || '480', 10) || 480)
-);
+async function loadConfig(): Promise<CosRuntimeConfig> {
+  const cfg = await getCosConfig();
+  if (!cfg.secretId || !cfg.secretKey || !cfg.bucket || !cfg.region) {
+    throw new Error('COS 未配置完整，请在后台「COS 设置」或 .env 中填写');
+  }
+  return cfg;
+}
 
-export type SignOptions = {
-  /** 生成列表用缩略图（WebP），灯箱/下载勿开 */
-  thumb?: boolean;
-  /** 缩略图最大宽度，默认 COS_THUMB_WIDTH / 480 */
-  thumbWidth?: number;
-};
+function createClient(cfg: CosRuntimeConfig, token?: string) {
+  return new COS({
+    SecretId: cfg.secretId,
+    SecretKey: cfg.secretKey,
+    ...(token ? { SecurityToken: token } : {}),
+  });
+}
 
-function applyCdnHost(url: string): string {
-  if (!CDN) return url;
+function applyCdnHost(url: string, cdnDomain: string): string {
+  if (!cdnDomain) return url;
   try {
     const u = new URL(url);
-    u.host = CDN;
+    u.host = cdnDomain;
     return u.toString();
   } catch {
     return url;
@@ -36,6 +43,7 @@ function applyCdnHost(url: string): string {
 
 function getObjectUrlWithClient(
   client: COS,
+  cfg: CosRuntimeConfig,
   key: string,
   method: 'GET' | 'PUT',
   expires: number,
@@ -44,8 +52,8 @@ function getObjectUrlWithClient(
   return new Promise((resolve, reject) => {
     client.getObjectUrl(
       {
-        Bucket,
-        Region,
+        Bucket: cfg.bucket,
+        Region: cfg.region,
         Key: key,
         Method: method,
         Sign: true,
@@ -55,17 +63,18 @@ function getObjectUrlWithClient(
       },
       (err, data) => {
         if (err) return reject(err);
-        resolve(applyCdnHost(data.Url));
+        resolve(applyCdnHost(data.Url, cfg.cdnDomain));
       }
     );
   });
 }
 
-/**
- * 生成上传预签名 URL（PUT）
- * 若 STS 可用：用临时密钥签名（长期 SecretKey 仅用于换票）
- * 否则：回退永久密钥签名
- */
+export type SignOptions = {
+  thumb?: boolean;
+  thumbWidth?: number;
+};
+
+/** 生成上传预签名 URL（PUT） */
 export async function getUploadPresignedUrl(
   key: string,
   contentType: string,
@@ -75,17 +84,18 @@ export async function getUploadPresignedUrl(
     throw new Error('非法的上传路径');
   }
 
+  const cfg = await loadConfig();
   const safeExpires = Math.min(Math.max(expires, 60), 600);
 
-  if (isStsEnabled()) {
+  if (stsModule?.isStsEnabled?.()) {
     try {
-      const sts = await getUploadStsCredential(Math.max(safeExpires + 60, 900));
+      const sts = await stsModule.getUploadStsCredential!(Math.max(safeExpires + 60, 900));
       const tempCos = new COS({
         SecretId: sts.credentials.tmpSecretId,
         SecretKey: sts.credentials.tmpSecretKey,
         SecurityToken: sts.credentials.sessionToken,
       });
-      const url = await getObjectUrlWithClient(tempCos, key, 'PUT', safeExpires, {
+      const url = await getObjectUrlWithClient(tempCos, cfg, key, 'PUT', safeExpires, {
         headers: { 'Content-Type': contentType },
       });
       return { url, viaSts: true };
@@ -94,16 +104,14 @@ export async function getUploadPresignedUrl(
     }
   }
 
-  const url = await getObjectUrlWithClient(permanentCos, key, 'PUT', safeExpires, {
+  const client = createClient(cfg);
+  const url = await getObjectUrlWithClient(client, cfg, key, 'PUT', safeExpires, {
     headers: { 'Content-Type': contentType },
   });
   return { url, viaSts: false };
 }
 
-/**
- * 生成访问签名 URL（GET）
- * thumb=true 时附带数据万象缩略参数（需桶开通图片处理）
- */
+/** 生成访问签名 URL（GET） */
 export async function getSignedUrl(
   key: string,
   expires = 1800,
@@ -113,17 +121,19 @@ export async function getSignedUrl(
     throw new Error('非法的对象键');
   }
 
+  const cfg = await loadConfig();
   const safeExpires = Math.min(Math.max(expires, 60), 3600);
   const query: Record<string, string> = {};
 
   if (options?.thumb) {
-    const w = options.thumbWidth ?? THUMB_WIDTH;
-    // 限制最长边，转 WebP，降低列表带宽
+    const w = options.thumbWidth ?? cfg.thumbWidth;
     query[`imageMogr2/thumbnail/${w}x${w}>/format/webp`] = '';
   }
 
+  const client = createClient(cfg);
   return getObjectUrlWithClient(
-    permanentCos,
+    client,
+    cfg,
     key,
     'GET',
     safeExpires,
@@ -131,10 +141,6 @@ export async function getSignedUrl(
   );
 }
 
-/**
- * 生成对象存储 key
- * 格式：media/年/月/日/时间戳-随机串.扩展名
- */
 export function generateKey(filename: string): string {
   const now = new Date();
   const y = now.getFullYear();
@@ -142,25 +148,20 @@ export function generateKey(filename: string): string {
   const d = String(now.getDate()).padStart(2, '0');
   const ext = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : 'bin';
   const random = Math.random().toString(36).slice(2, 10);
-
   return `media/${y}/${m}/${d}/${Date.now()}-${random}.${ext}`;
 }
 
-/**
- * 删除 COS 对象（可选，管理端删除媒体时调用）
- */
-export function deleteObject(key: string): Promise<void> {
+export async function deleteObject(key: string): Promise<void> {
   if (!key.startsWith('media/')) {
-    return Promise.reject(new Error('非法的对象键'));
+    throw new Error('非法的对象键');
   }
 
+  const cfg = await loadConfig();
+  const client = createClient(cfg);
+
   return new Promise((resolve, reject) => {
-    permanentCos.deleteObject(
-      {
-        Bucket,
-        Region,
-        Key: key,
-      },
+    client.deleteObject(
+      { Bucket: cfg.bucket, Region: cfg.region, Key: key },
       (err) => {
         if (err) return reject(err);
         resolve();
@@ -169,4 +170,8 @@ export function deleteObject(key: string): Promise<void> {
   });
 }
 
-export { permanentCos as cos, Bucket, Region };
+/** @deprecated 请用 getCosConfig；保留兼容导出 */
+export async function getBucketRegion() {
+  const cfg = await loadConfig();
+  return { Bucket: cfg.bucket, Region: cfg.region, CDN: cfg.cdnDomain };
+}
