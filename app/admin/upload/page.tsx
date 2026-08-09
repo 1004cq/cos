@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 interface UploadItem {
   file: File;
@@ -13,7 +14,7 @@ interface UploadItem {
 }
 
 export default function UploadPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -26,8 +27,7 @@ export default function UploadPage() {
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    addFiles(files);
+    addFiles(Array.from(e.dataTransfer.files));
   }, []);
 
   function addFiles(files: File[]) {
@@ -36,13 +36,16 @@ export default function UploadPage() {
       progress: 0,
       status: 'pending',
     }));
-    setItems((prev) => [...prev, ...newItems]);
-    newItems.forEach((item, idx) => uploadOne(item, items.length + idx));
+    setItems((prev) => {
+      const start = prev.length;
+      const next = [...prev, ...newItems];
+      newItems.forEach((item, idx) => uploadOne(item, start + idx));
+      return next;
+    });
   }
 
   async function uploadOne(item: UploadItem, index: number) {
     try {
-      // 1. 获取预签名
       const presignRes = await fetch('/api/upload/presign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,7 +63,6 @@ export default function UploadPage() {
 
       const { url, key } = await presignRes.json();
 
-      // 2. 直接 PUT 到 COS
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', url);
@@ -78,18 +80,13 @@ export default function UploadPage() {
         };
 
         xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`上传失败: ${xhr.status}`));
-          }
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`上传失败: ${xhr.status}`));
         };
-
         xhr.onerror = () => reject(new Error('网络错误'));
         xhr.send(item.file);
       });
 
-      // 3. 入库
       const mediaRes = await fetch('/api/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,9 +98,7 @@ export default function UploadPage() {
         }),
       });
 
-      if (!mediaRes.ok) {
-        throw new Error('入库失败');
-      }
+      if (!mediaRes.ok) throw new Error('入库失败');
 
       setItems((prev) => {
         const next = [...prev];
@@ -124,9 +119,14 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white p-6">
+    <div className="min-h-screen p-6">
       <div className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">上传照片 / 视频</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight">上传照片 / 视频</h1>
+          <Link href="/" className="btn-ghost !py-1.5 !px-3 text-sm">
+            返回时间轴
+          </Link>
+        </div>
 
         <div
           onDragOver={(e) => {
@@ -135,11 +135,13 @@ export default function UploadPage() {
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center transition ${
-            dragging ? 'border-blue-500 bg-blue-500/10' : 'border-zinc-700 bg-zinc-900'
+          className={`rounded-3xl p-12 text-center transition border-2 border-dashed glass ${
+            dragging ? 'border-blue-400 bg-blue-50/40' : 'border-white/60'
           }`}
         >
-          <p className="text-zinc-400 mb-4">拖拽文件到这里，或点击选择</p>
+          <p className="mb-4" style={{ color: 'var(--text-muted)' }}>
+            拖拽文件到这里，或点击选择
+          </p>
           <input
             type="file"
             multiple
@@ -150,10 +152,7 @@ export default function UploadPage() {
               if (e.target.files) addFiles(Array.from(e.target.files));
             }}
           />
-          <label
-            htmlFor="file-input"
-            className="inline-block px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 cursor-pointer transition"
-          >
+          <label htmlFor="file-input" className="btn-primary inline-block cursor-pointer">
             选择文件
           </label>
         </div>
@@ -161,20 +160,16 @@ export default function UploadPage() {
         {items.length > 0 && (
           <div className="mt-8 space-y-3">
             {items.map((item, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-4 p-4 rounded-xl bg-zinc-900 border border-zinc-800"
-              >
+              <div key={i} className="flex items-center gap-4 p-4 rounded-2xl glass">
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm">{item.file.name}</p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="truncate text-sm font-medium">{item.file.name}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {(item.file.size / 1024 / 1024).toFixed(2)} MB
                   </p>
                 </div>
-
-                <div className="w-32">
+                <div className="w-32 text-right text-sm">
                   {item.status === 'uploading' && (
-                    <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-2 rounded-full overflow-hidden bg-white/50">
                       <div
                         className="h-full bg-blue-500 transition-all"
                         style={{ width: `${item.progress}%` }}
@@ -182,13 +177,13 @@ export default function UploadPage() {
                     </div>
                   )}
                   {item.status === 'success' && (
-                    <span className="text-green-400 text-sm">完成</span>
+                    <span className="text-green-600">完成</span>
                   )}
                   {item.status === 'error' && (
-                    <span className="text-red-400 text-sm">{item.error}</span>
+                    <span className="text-red-500">{item.error}</span>
                   )}
                   {item.status === 'pending' && (
-                    <span className="text-zinc-500 text-sm">等待中</span>
+                    <span style={{ color: 'var(--text-muted)' }}>等待中</span>
                   )}
                 </div>
               </div>
