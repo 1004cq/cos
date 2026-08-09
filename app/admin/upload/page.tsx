@@ -7,6 +7,8 @@ import { RotateCcw } from 'lucide-react';
 interface UploadItem {
   id: string;
   file: File;
+  /** 可选展示标题（入库用，不改 filename） */
+  title: string;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
@@ -91,6 +93,7 @@ export default function UploadPage() {
           xhr.send(item.file);
         });
 
+        const title = item.title.trim();
         const mediaRes = await fetch('/api/media', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -100,6 +103,7 @@ export default function UploadPage() {
             mimeType: item.file.type || 'application/octet-stream',
             size: item.file.size,
             albumId: albumId || null,
+            ...(title ? { title } : {}),
           }),
         });
 
@@ -119,47 +123,42 @@ export default function UploadPage() {
     [albumId, updateItem]
   );
 
-  const addFiles = useCallback(
-    (files: File[]) => {
-      const mediaFiles = files.filter(
-        (f) => f.type.startsWith('image/') || f.type.startsWith('video/') || !f.type
-      );
-      if (mediaFiles.length === 0) return;
+  const addFiles = useCallback((files: File[]) => {
+    const mediaFiles = files.filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/') || !f.type
+    );
+    if (mediaFiles.length === 0) return;
 
-      const newItems: UploadItem[] = mediaFiles.map((file) => {
-        // 粘贴的截图常无文件名
-        const named =
-          file.name && file.name !== 'image.png' && file.name !== 'blob'
-            ? file
-            : new File(
-                [file],
-                `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${
-                  file.type.includes('png')
-                    ? 'png'
-                    : file.type.includes('jpeg') || file.type.includes('jpg')
-                      ? 'jpg'
-                      : file.type.includes('webp')
-                        ? 'webp'
-                        : 'bin'
-                }`,
-                { type: file.type || 'application/octet-stream' }
-              );
+    const newItems: UploadItem[] = mediaFiles.map((file) => {
+      const named =
+        file.name && file.name !== 'image.png' && file.name !== 'blob'
+          ? file
+          : new File(
+              [file],
+              `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${
+                file.type.includes('png')
+                  ? 'png'
+                  : file.type.includes('jpeg') || file.type.includes('jpg')
+                    ? 'jpg'
+                    : file.type.includes('webp')
+                      ? 'webp'
+                      : 'bin'
+              }`,
+              { type: file.type || 'application/octet-stream' }
+            );
 
-        return {
-          id: makeId(),
-          file: named,
-          progress: 0,
-          status: 'pending' as const,
-        };
-      });
+      return {
+        id: makeId(),
+        file: named,
+        title: '',
+        progress: 0,
+        status: 'pending' as const,
+      };
+    });
 
-      setItems((prev) => [...prev, ...newItems]);
-      newItems.forEach((item) => {
-        void uploadOne(item);
-      });
-    },
-    [uploadOne]
-  );
+    // 先入队，便于填写标题后再上传（不改 COS key / 画质流程）
+    setItems((prev) => [...prev, ...newItems]);
+  }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -172,10 +171,10 @@ export default function UploadPage() {
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
-      const items = e.clipboardData?.items;
-      if (!items) return;
+      const pasteItems = e.clipboardData?.items;
+      if (!pasteItems) return;
       const files: File[] = [];
-      for (const item of Array.from(items)) {
+      for (const item of Array.from(pasteItems)) {
         if (item.kind === 'file') {
           const file = item.getAsFile();
           if (file) files.push(file);
@@ -193,6 +192,18 @@ export default function UploadPage() {
 
   const successCount = items.filter((i) => i.status === 'success').length;
   const errorCount = items.filter((i) => i.status === 'error').length;
+  const pendingCount = items.filter((i) => i.status === 'pending').length;
+
+  function startUpload(ids: string[]) {
+    const idSet = new Set(ids);
+    items
+      .filter(
+        (i) => idSet.has(i.id) && (i.status === 'pending' || i.status === 'error')
+      )
+      .forEach((item) => {
+        void uploadOne(item);
+      });
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -200,11 +211,11 @@ export default function UploadPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">上传</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            预签名直传 COS · 原画质
+            预签名直传 COS · 原画质 · 可为视频填写标题
           </p>
         </div>
         <Link href="/" className="btn-ghost text-sm">
-          查看时间轴
+          查看图库
         </Link>
       </div>
 
@@ -224,7 +235,7 @@ export default function UploadPage() {
         </select>
         {albumsError && <p className="text-xs text-red-500">{albumsError}</p>}
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          选择后，本次新上传的文件将写入该相册；已在队列中的任务沿用开始时的选择。
+          选择文件后可填写标题（可选），再点击开始上传；filename 仍保留原文件名。
         </p>
       </div>
 
@@ -263,65 +274,105 @@ export default function UploadPage() {
 
       {items.length > 0 && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between text-sm" style={{ color: 'var(--text-muted)' }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm" style={{ color: 'var(--text-muted)' }}>
             <span>
-              完成 {successCount} · 失败 {errorCount} · 共 {items.length}
+              完成 {successCount} · 失败 {errorCount} · 等待 {pendingCount} · 共 {items.length}
             </span>
-            {errorCount > 0 && (
-              <button
-                type="button"
-                className="btn-ghost !py-1.5 !px-3 text-sm inline-flex items-center gap-1"
-                onClick={() => {
-                  items
-                    .filter((i) => i.status === 'error')
-                    .forEach((item) => void uploadOne(item));
-                }}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                重试全部失败
-              </button>
-            )}
+            <div className="flex gap-2">
+              {pendingCount > 0 && (
+                <button
+                  type="button"
+                  className="btn-primary !py-1.5 !px-3 text-sm"
+                  onClick={() =>
+                    startUpload(items.filter((i) => i.status === 'pending').map((i) => i.id))
+                  }
+                >
+                  开始上传全部
+                </button>
+              )}
+              {errorCount > 0 && (
+                <button
+                  type="button"
+                  className="btn-ghost !py-1.5 !px-3 text-sm inline-flex items-center gap-1"
+                  onClick={() =>
+                    startUpload(items.filter((i) => i.status === 'error').map((i) => i.id))
+                  }
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  重试全部失败
+                </button>
+              )}
+            </div>
           </div>
 
-          {items.map((item) => (
-            <div key={item.id} className="flex items-center gap-4 p-4 rounded-2xl glass">
-              <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-medium">{item.file.name}</p>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {(item.file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-              <div className="w-36 text-right text-sm">
-                {item.status === 'uploading' && (
-                  <div className="h-2 rounded-full overflow-hidden bg-white/50">
-                    <div
-                      className="h-full bg-blue-500 transition-all"
-                      style={{ width: `${item.progress}%` }}
-                    />
+          {items.map((item) => {
+            const isVideo = item.file.type.startsWith('video/');
+            const canEditTitle = item.status === 'pending' || item.status === 'error';
+            return (
+              <div key={item.id} className="p-4 rounded-2xl glass space-y-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {isVideo ? '[视频] ' : ''}
+                      {item.file.name}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
                   </div>
-                )}
-                {item.status === 'success' && (
-                  <span className="text-green-600">完成</span>
-                )}
-                {item.status === 'error' && (
-                  <div className="space-y-1">
-                    <p className="text-red-500 text-xs break-all">{item.error}</p>
-                    <button
-                      type="button"
-                      onClick={() => void uploadOne(item)}
-                      className="text-blue-600 text-xs hover:underline inline-flex items-center gap-0.5"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      重试
-                    </button>
+                  <div className="w-36 text-right text-sm shrink-0">
+                    {item.status === 'uploading' && (
+                      <div className="h-2 rounded-full overflow-hidden bg-white/50">
+                        <div
+                          className="h-full bg-blue-500 transition-all"
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
+                    )}
+                    {item.status === 'success' && (
+                      <span className="text-green-600">完成</span>
+                    )}
+                    {item.status === 'error' && (
+                      <div className="space-y-1">
+                        <p className="text-red-500 text-xs break-all">{item.error}</p>
+                        <button
+                          type="button"
+                          onClick={() => void uploadOne(item)}
+                          className="text-blue-600 text-xs hover:underline inline-flex items-center gap-0.5"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          重试
+                        </button>
+                      </div>
+                    )}
+                    {item.status === 'pending' && (
+                      <button
+                        type="button"
+                        className="btn-primary !py-1.5 !px-3 text-xs"
+                        onClick={() => void uploadOne(item)}
+                      >
+                        上传
+                      </button>
+                    )}
                   </div>
-                )}
-                {item.status === 'pending' && (
-                  <span style={{ color: 'var(--text-muted)' }}>等待中</span>
-                )}
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                    标题{isVideo ? '（推荐）' : '（可选）'} · 最长 100 字
+                  </label>
+                  <input
+                    type="text"
+                    className="input-glass text-sm"
+                    maxLength={100}
+                    placeholder="不填则前台显示文件名"
+                    value={item.title}
+                    disabled={!canEditTitle}
+                    onChange={(e) => updateItem(item.id, { title: e.target.value })}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

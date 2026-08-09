@@ -12,6 +12,7 @@ type MediaRow = {
   id: string;
   key: string;
   filename: string;
+  title: string | null;
   mimeType: string;
   size: number;
   width: number | null;
@@ -57,6 +58,7 @@ async function buildShareItems(mediaList: MediaRow[]) {
         id: m.id,
         key: m.key,
         filename: m.filename,
+        title: m.title,
         mimeType: m.mimeType,
         size: m.size,
         width: m.width,

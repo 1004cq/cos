@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Lightbox, type LightboxItem } from '@/components/lightbox';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { cn, mediaDisplayTitle } from '@/lib/utils';
 
 type GalleryItem = LightboxItem & {
   key: string;
@@ -208,33 +208,36 @@ export default function HomePage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {videos.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="glass rounded-2xl overflow-hidden text-left group min-h-[44px]"
-                        onClick={() => openItem(item)}
-                        aria-label={`播放 ${item.filename}`}
-                      >
-                        <div className="relative aspect-video bg-black/5">
-                          <video
-                            src={item.url}
-                            className="w-full h-full object-cover"
-                            muted
-                            playsInline
-                            preload="metadata"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
-                            <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg">
-                              ▶
-                            </span>
+                    {videos.map((item) => {
+                      const label = mediaDisplayTitle(item.title, item.filename);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="glass rounded-2xl overflow-hidden text-left group min-h-[44px]"
+                          onClick={() => openItem(item)}
+                          aria-label={`播放 ${label}`}
+                        >
+                          <div className="relative aspect-video bg-black/5">
+                            <video
+                              src={item.url}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
+                              <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg">
+                                ▶
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="px-3 py-2.5">
-                          <p className="text-sm font-medium truncate">{item.filename}</p>
-                        </div>
-                      </button>
-                    ))}
+                          <div className="px-3 py-2.5">
+                            <p className="text-sm font-medium truncate">{label}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </section>

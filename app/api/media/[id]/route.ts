@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { deleteObject } from '@/lib/cos';
+import { normalizeMediaTitle } from '@/lib/utils';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -33,8 +34,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 /**
- * 更新媒体（目前主要用于移入/移出相册）
- * Body: { albumId?: string | null }
+ * 更新媒体
+ * Body: { albumId?: string | null, title?: string | null }
+ * title 传 null 或空字符串可清空标题
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
@@ -45,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const { id } = await params;
     const body = await req.json();
-    const data: { albumId?: string | null } = {};
+    const data: { albumId?: string | null; title?: string | null } = {};
 
     if ('albumId' in body) {
       if (body.albumId === null || body.albumId === '') {
@@ -58,6 +60,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         data.albumId = body.albumId;
       } else {
         return NextResponse.json({ error: 'albumId 无效' }, { status: 400 });
+      }
+    }
+
+    if ('title' in body) {
+      try {
+        data.title = normalizeMediaTitle(body.title);
+      } catch (e: unknown) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : '标题无效' },
+          { status: 400 }
+        );
       }
     }
 
