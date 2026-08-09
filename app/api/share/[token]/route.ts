@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
 import { getSignedUrl } from '@/lib/cos';
+import { recordVisit } from '@/lib/visit';
 
 type Params = { params: Promise<{ token: string }> };
 
@@ -63,7 +64,6 @@ async function buildShareItems(mediaList: MediaRow[]) {
         duration: m.duration,
         takenAt: m.takenAt,
         url,
-        // 网格用缩略图；灯箱用 url 原图
         thumbUrl: thumbUrl || url,
       };
     })
@@ -96,7 +96,6 @@ async function resolveShareAccess(token: string, password: string) {
   return { share };
 }
 
-/** 删除分享（按 token 或 id，需登录） */
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const session = await getServerSession(authOptions);
@@ -126,17 +125,20 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   }
 }
 
-/**
- * 获取分享内容
- * - 无密码：直接返回媒体列表 + 签名 URL
- * - 有密码：需在 body/query 中传 password
- */
 export async function GET(req: NextRequest, { params }: Params) {
   try {
     const { token } = await params;
     const password = new URL(req.url).searchParams.get('password') || '';
     const resolved = await resolveShareAccess(token, password);
     if ('error' in resolved && resolved.error) return resolved.error;
+
+    // 成功打开分享内容时记访问（不记仅「需要密码」的探测）
+    void recordVisit({
+      req,
+      path: `/share/${token}`,
+      kind: 'share',
+      shareToken: token,
+    });
 
     const mediaList = await loadShareMedia(resolved.share!);
     const items = await buildShareItems(mediaList);
@@ -153,7 +155,6 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 }
 
-/** POST 方式传密码（更安全，密码不进 URL） */
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const { token } = await params;
@@ -162,6 +163,14 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const resolved = await resolveShareAccess(token, password);
     if ('error' in resolved && resolved.error) return resolved.error;
+
+    void recordVisit({
+      req,
+      path: `/share/${token}`,
+      kind: 'share',
+      shareToken: token,
+      method: 'POST',
+    });
 
     const mediaList = await loadShareMedia(resolved.share!);
     const items = await buildShareItems(mediaList);
