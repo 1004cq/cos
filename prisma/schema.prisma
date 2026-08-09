@@ -55,3 +55,23 @@ model ShareLink {
   expiresAt DateTime?
   createdAt DateTime @default(now())
 }
+
+/// 访客访问记录（IP + 路径 + 次数统计用）
+model Visit {
+  id         String   @id @default(cuid())
+  ip         String
+  path       String
+  method     String   @default("GET")
+  referer    String?
+  userAgent  String?
+  shareToken String?
+  /// page | share | api
+  kind       String   @default("page")
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([ip])
+  @@index([path])
+  @@index([shareToken])
+  @@index([kind])
+}
