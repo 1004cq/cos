@@ -102,6 +102,13 @@ graph TB
 
 主要模型：`User`、`Album`、`Media`、`ShareLink`。
 
+`Media.title` 为可选展示标题（`filename` 始终保留原文件名）。变更 schema 后在部署环境执行：
+
+```bash
+npx prisma db push
+npx prisma generate
+```
+
 ---
 
 ## 五、API 接口设计
