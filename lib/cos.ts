@@ -170,6 +170,33 @@ export async function deleteObject(key: string): Promise<void> {
   });
 }
 
+/** 读取 COS 对象字节大小（用于核对原文件是否无损入库） */
+export async function headObjectSize(key: string): Promise<number | null> {
+  if (!key.startsWith('media/')) {
+    throw new Error('非法的对象键');
+  }
+
+  const cfg = await loadConfig();
+  const client = createClient(cfg);
+
+  return new Promise((resolve, reject) => {
+    client.headObject(
+      { Bucket: cfg.bucket, Region: cfg.region, Key: key },
+      (err, data) => {
+        if (err) return reject(err);
+        const headers = (data?.headers || {}) as Record<string, string | number | undefined>;
+        const raw =
+          headers['content-length'] ??
+          headers['Content-Length'] ??
+          (data as { ContentLength?: string | number } | undefined)?.ContentLength;
+        if (raw == null) return resolve(null);
+        const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+        resolve(Number.isFinite(n) ? n : null);
+      }
+    );
+  });
+}
+
 /** @deprecated 请用 getCosConfig；保留兼容导出 */
 export async function getBucketRegion() {
   const cfg = await loadConfig();
