@@ -12,12 +12,22 @@ const CDN = process.env.COS_CDN_DOMAIN; // 例如：陈庆.我爱你
 /**
  * 生成上传预签名 URL（PUT）
  * 前端拿到后直接 PUT 文件到 COS，不经过自己服务器
+ *
+ * 安全建议：
+ * - 默认有效期 5 分钟，尽量短
+ * - 强制签入 Content-Type，减少被滥用空间
+ * - 后续可升级为 STS 临时密钥生成
  */
 export function getUploadPresignedUrl(
   key: string,
   contentType: string,
-  expires = 600 // 10 分钟
+  expires = 300 // 默认 5 分钟
 ): Promise<{ url: string }> {
+  // 安全：只允许上传到 media/ 目录
+  if (!key.startsWith('media/')) {
+    return Promise.reject(new Error('非法的上传路径'));
+  }
+
   return new Promise((resolve, reject) => {
     cos.getObjectUrl(
       {
@@ -41,9 +51,21 @@ export function getUploadPresignedUrl(
 
 /**
  * 生成访问签名 URL（GET）
- * 所有前台展示图片/视频都必须走这个方法
+ * 所有前台展示图片/视频都必须走这个方法（通过 /api/sign 调用）
+ *
+ * 安全建议：
+ * - 默认 30 分钟
+ * - 最大不要超过 1 小时
+ * - 优先走 CDN 域名
  */
-export function getSignedUrl(key: string, expires = 3600): Promise<string> {
+export function getSignedUrl(key: string, expires = 1800): Promise<string> {
+  if (!key.startsWith('media/')) {
+    return Promise.reject(new Error('非法的对象键'));
+  }
+
+  // 限制最大有效期 1 小时
+  const safeExpires = Math.min(Math.max(expires, 60), 3600);
+
   return new Promise((resolve, reject) => {
     cos.getObjectUrl(
       {
@@ -52,7 +74,7 @@ export function getSignedUrl(key: string, expires = 3600): Promise<string> {
         Key: key,
         Method: 'GET',
         Sign: true,
-        Expires: expires,
+        Expires: safeExpires,
       },
       (err, data) => {
         if (err) return reject(err);
@@ -64,9 +86,8 @@ export function getSignedUrl(key: string, expires = 3600): Promise<string> {
           try {
             const u = new URL(url);
             u.host = CDN;
-            // 如果是中文域名，浏览器会自动处理，这里保持原样即可
             url = u.toString();
-          } catch (e) {
+          } catch {
             // 忽略替换失败，使用原始签名地址
           }
         }
