@@ -29,7 +29,10 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
   const current = items[index];
   const isVideo = current?.mimeType?.startsWith('video/');
   const [displayUrl, setDisplayUrl] = useState(current?.url || '');
+  const [playing, setPlaying] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const didSwipe = useRef(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const prev = useCallback(() => {
     if (index > 0) onChange(index - 1);
@@ -57,6 +60,7 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
   useEffect(() => {
     if (!current) return;
     setDisplayUrl(current.url);
+    setPlaying(false);
 
     if (!current.key || isVideo) return;
 
@@ -70,10 +74,17 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
     };
   }, [current, isVideo]);
 
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !isVideo) return;
+    void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }, [current?.id, isVideo]);
+
   if (!current) return null;
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.changedTouches[0]?.clientX ?? null;
+    didSwipe.current = false;
   }
 
   function onTouchEnd(e: React.TouchEvent) {
@@ -82,8 +93,30 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
     const delta = endX - touchStartX.current;
     touchStartX.current = null;
     if (Math.abs(delta) < 50) return;
+    didSwipe.current = true;
     if (delta > 0) prev();
     else next();
+  }
+
+  async function togglePlay(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (didSwipe.current) {
+      didSwipe.current = false;
+      return;
+    }
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.paused) {
+      try {
+        await el.play();
+        setPlaying(true);
+      } catch {
+        setPlaying(false);
+      }
+    } else {
+      el.pause();
+      setPlaying(false);
+    }
   }
 
   return (
@@ -127,26 +160,45 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
         )}
 
         {isVideo ? (
-          <video
-            key={current.id}
-            src={current.url}
-            controls
-            controlsList="nodownload noplaybackrate noremoteplayback"
-            disablePictureInPicture
-            autoPlay
-            playsInline
-            className="max-h-[calc(100vh-100px)] max-w-full rounded-2xl shadow-2xl"
-            onContextMenu={blockSave}
-            onDragStart={blockSave}
-          />
+          <div className="relative max-h-[calc(100vh-100px)] max-w-full w-full flex items-center justify-center">
+            {/* 无原生 controls，避免系统「下载/保存视频」入口；全画质签名 URL 不变 */}
+            <video
+              ref={videoRef}
+              key={current.id}
+              src={current.url}
+              controls={false}
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
+              playsInline
+              preload="metadata"
+              className="max-h-[calc(100vh-100px)] max-w-full rounded-2xl shadow-2xl"
+              onContextMenu={blockSave}
+              onDragStart={blockSave}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+            />
+            <button
+              type="button"
+              className="absolute inset-0 z-[1] flex items-center justify-center rounded-2xl"
+              aria-label={playing ? '暂停' : '播放'}
+              onClick={togglePlay}
+              onContextMenu={blockSave}
+            >
+              {!playing && (
+                <span className="w-14 h-14 rounded-full glass-strong flex items-center justify-center text-xl pointer-events-none">
+                  ▶
+                </span>
+              )}
+            </button>
+          </div>
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <div
             key={`${current.id}-${displayUrl}`}
-            src={displayUrl}
-            alt={current.filename}
-            className="max-h-[calc(100vh-100px)] max-w-full object-contain select-none rounded-2xl shadow-2xl"
-            draggable={false}
+            role="img"
+            aria-label={current.filename}
+            className="max-h-[calc(100vh-100px)] w-full max-w-full min-h-[40vh] rounded-2xl shadow-2xl bg-contain bg-center bg-no-repeat"
+            style={{ backgroundImage: `url(${JSON.stringify(displayUrl)})` }}
             onContextMenu={blockSave}
             onDragStart={blockSave}
           />

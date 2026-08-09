@@ -223,19 +223,21 @@ export default function HomePage() {
                         aria-label={`播放 ${item.filename}`}
                       >
                         <div className="relative aspect-video bg-black/5">
+                          {/* 预览仍走全画质签名 URL，但 pointer-events 关闭 + 遮罩，降低长按保存 */}
                           <video
                             src={item.url}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover pointer-events-none"
                             muted
                             playsInline
                             preload="metadata"
                             controls={false}
-                            controlsList="nodownload"
+                            controlsList="nodownload noplaybackrate"
                             disablePictureInPicture
+                            disableRemotePlayback
                             onContextMenu={(e) => e.preventDefault()}
                           />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition pointer-events-none">
-                            <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg">
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
+                            <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg pointer-events-none">
                               ▶
                             </span>
                           </div>

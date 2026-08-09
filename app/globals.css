@@ -150,19 +150,22 @@ body::before {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-user-drag: none;
 }
 .no-save img,
 .no-save video {
   pointer-events: none;
   -webkit-user-drag: none;
-}
-/* 灯箱内带控件的视频需可点按播放；左右切换/关闭仍走外层按钮 */
-.no-save video[controls] {
-  pointer-events: auto;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 .media-tile .media-cover {
   @apply absolute inset-0 bg-cover bg-center transition duration-300;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
 }
 .media-tile:hover .media-cover {
   transform: scale(1.04);
