@@ -62,34 +62,30 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <p className="text-zinc-400">加载中...</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <p style={{ color: 'var(--text-muted)' }}>加载中...</p>
       </div>
     );
   }
 
   if (needPassword) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
-        <form
-          onSubmit={handleSubmit}
-          className="w-full max-w-sm p-8 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4"
-        >
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <form onSubmit={handleSubmit} className="w-full max-w-sm p-8 rounded-3xl glass-strong space-y-4">
           <h1 className="text-xl font-semibold text-center">需要密码</h1>
-          <p className="text-zinc-400 text-sm text-center">此分享受密码保护</p>
+          <p className="text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+            此分享受密码保护
+          </p>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="请输入密码"
-            className="w-full px-4 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input-glass"
             autoFocus
           />
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 transition font-medium"
-          >
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <button type="submit" className="btn-primary w-full">
             查看
           </button>
         </form>
@@ -99,44 +95,46 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   if (error) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center">
-        <p className="text-red-400">{error}</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-red-500">{error}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
-      <header className="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur border-b border-zinc-800 px-4 py-3">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-10 glass-header px-4 py-3">
         <h1 className="text-lg font-medium">分享相册</h1>
-        <p className="text-xs text-zinc-500">{items.length} 个文件</p>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {items.length} 个文件
+        </p>
       </header>
 
       {items.length === 0 ? (
-        <p className="text-center text-zinc-500 py-20">暂无内容</p>
+        <p className="text-center py-20" style={{ color: 'var(--text-muted)' }}>
+          暂无内容
+        </p>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1 p-1">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 p-2">
           {items.map((item, i) => {
             const isVideo = item.mimeType.startsWith('video/');
             return (
               <button
                 key={item.id}
                 type="button"
-                className="relative aspect-square bg-zinc-900 overflow-hidden group"
+                className="media-tile"
                 onClick={() => setLightboxIndex(i)}
               >
                 {isVideo ? (
-                  <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                  <div
+                    className="w-full h-full flex items-center justify-center"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
                     <span className="text-3xl">▶</span>
                   </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.url}
-                    alt={item.filename}
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                    loading="lazy"
-                  />
+                  <img src={item.url} alt={item.filename} loading="lazy" />
                 )}
               </button>
             );
