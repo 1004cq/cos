@@ -13,9 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
-      <body className="antialiased">
-        <SessionProvider>{children}</SessionProvider>
+    <html lang="zh-CN" className="min-h-full">
+      <body className="antialiased min-h-[100dvh]">
+        <SessionProvider>
+          <div className="min-h-[100dvh]">{children}</div>
+        </SessionProvider>
       </body>
     </html>
   );
