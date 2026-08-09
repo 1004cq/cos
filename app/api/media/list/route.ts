@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
  * Query:
  *   page, pageSize
  *   albumId
- *   search  (文件名模糊)
+ *   search  (文件名/标题模糊)
  *   tag
  */
 export async function GET(req: NextRequest) {
@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
-      where.filename = { contains: search, mode: 'insensitive' };
+      where.OR = [
+        { filename: { contains: search, mode: 'insensitive' } },
+        { title: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
     if (tag) {

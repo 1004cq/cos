@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from 'react';
 import { Lightbox, type LightboxItem } from '@/components/lightbox';
+import { mediaDisplayTitle } from '@/lib/utils';
 
 type MediaItem = LightboxItem & {
   size: number;
@@ -119,6 +120,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 p-2">
           {items.map((item, i) => {
             const isVideo = item.mimeType.startsWith('video/');
+            const label = mediaDisplayTitle(item.title, item.filename);
             return (
               <button
                 key={item.id}
@@ -127,13 +129,16 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                 onClick={() => setLightboxIndex(i)}
                 onContextMenu={(e) => e.preventDefault()}
                 onDragStart={(e) => e.preventDefault()}
+                aria-label={label}
               >
                 {isVideo ? (
-                  <div
-                    className="w-full h-full flex items-center justify-center"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    <span className="text-3xl">▶</span>
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2">
+                    <span className="text-3xl" style={{ color: 'var(--text-muted)' }}>
+                      ▶
+                    </span>
+                    <span className="text-xs font-medium truncate w-full text-center">
+                      {label}
+                    </span>
                   </div>
                 ) : (
                   <div
@@ -141,7 +146,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                     style={{
                       backgroundImage: `url(${JSON.stringify(item.thumbUrl || item.url)})`,
                     }}
-                    aria-hidden
+                    role="img"
+                    aria-label={label}
                   />
                 )}
               </button>

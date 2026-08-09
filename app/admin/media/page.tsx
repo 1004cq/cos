@@ -1,8 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LayoutGrid, List, Search, Trash2, FolderInput, Share2 } from 'lucide-react';
-import { formatBytes, formatDateTime, mapWithConcurrency, cn } from '@/lib/utils';
+import { LayoutGrid, List, Search, Trash2, FolderInput, Share2, Check } from 'lucide-react';
+import {
+  formatBytes,
+  formatDateTime,
+  mapWithConcurrency,
+  cn,
+  mediaDisplayTitle,
+} from '@/lib/utils';
 import { fetchSignedUrl } from '@/lib/sign-client';
 import { ShareCreateDialog } from '@/components/share-create-dialog';
 
@@ -15,6 +21,7 @@ type MediaItem = {
   id: string;
   key: string;
   filename: string;
+  title?: string | null;
   mimeType: string;
   size: number;
   createdAt: string;
@@ -38,6 +45,8 @@ export default function AdminMediaPage() {
   const [busy, setBusy] = useState(false);
   const [deleteCos, setDeleteCos] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
+  const [savingTitleId, setSavingTitleId] = useState<string | null>(null);
 
   const loadThumbs = useCallback(async (media: MediaItem[]) => {
     const images = media.filter((m) => m.mimeType.startsWith('image/'));
@@ -79,12 +88,18 @@ export default function AdminMediaPage() {
       const mediaData = await mediaRes.json();
       const albumData: Album[] = await albumsRes.json();
 
-      setItems(mediaData.items ?? []);
+      const list: MediaItem[] = mediaData.items ?? [];
+      setItems(list);
       setTotal(mediaData.total ?? 0);
       setTotalPages(mediaData.totalPages ?? 1);
       setAlbums(albumData);
       setSelected(new Set());
-      void loadThumbs(mediaData.items ?? []);
+      const drafts: Record<string, string> = {};
+      for (const m of list) {
+        drafts[m.id] = m.title ?? '';
+      }
+      setTitleDrafts(drafts);
+      void loadThumbs(list);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {
@@ -180,6 +195,29 @@ export default function AdminMediaPage() {
     e.preventDefault();
     setPage(1);
     setSearch(searchInput.trim());
+  }
+
+  async function saveTitle(id: string) {
+    const next = (titleDrafts[id] ?? '').trim();
+    setSavingTitleId(id);
+    setError('');
+    try {
+      const res = await fetch(`/api/media/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: next || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '保存标题失败');
+      setItems((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, title: data.title ?? null } : m))
+      );
+      setTitleDrafts((prev) => ({ ...prev, [id]: data.title ?? '' }));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '保存标题失败');
+    } finally {
+      setSavingTitleId(null);
+    }
   }
 
   return (
@@ -347,7 +385,9 @@ export default function AdminMediaPage() {
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/40 to-transparent">
-                  <p className="text-white text-xs truncate">{item.filename}</p>
+                  <p className="text-white text-xs truncate">
+                    {mediaDisplayTitle(item.title, item.filename)}
+                  </p>
                 </div>
               </label>
             );
@@ -355,39 +395,72 @@ export default function AdminMediaPage() {
         </div>
       ) : (
         <ul className="rounded-3xl glass divide-y divide-white/40 overflow-hidden">
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-              <input
-                type="checkbox"
-                checked={selected.has(item.id)}
-                onChange={() => toggleSelect(item.id)}
-              />
-              <span
-                className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center text-xs shrink-0"
-                style={{ color: 'var(--text-muted)' }}
-              >
-                {item.mimeType.startsWith('video/') ? '▶' : '图'}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{item.filename}</p>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {formatBytes(item.size)} · {item.album?.title || '未归类'}
-                </p>
-              </div>
-              <time className="text-xs shrink-0 hidden sm:block" style={{ color: 'var(--text-muted)' }}>
-                {formatDateTime(item.createdAt)}
-              </time>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void handleBatchDelete([item.id])}
-                className="btn-ghost !p-2 text-red-600 disabled:opacity-50"
-                aria-label="删除"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </li>
-          ))}
+          {items.map((item) => {
+            const draft = titleDrafts[item.id] ?? '';
+            const dirty = draft.trim() !== (item.title ?? '').trim();
+            return (
+              <li key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 text-sm">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(item.id)}
+                    onChange={() => toggleSelect(item.id)}
+                  />
+                  <span
+                    className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center text-xs shrink-0"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    {item.mimeType.startsWith('video/') ? '▶' : '图'}
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="truncate text-xs" style={{ color: 'var(--text-muted)' }}>
+                      文件名：{item.filename}
+                    </p>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        className="input-glass !py-1.5 text-sm flex-1 min-w-0"
+                        maxLength={100}
+                        placeholder="标题（可选）"
+                        value={draft}
+                        onChange={(e) =>
+                          setTitleDrafts((prev) => ({ ...prev, [item.id]: e.target.value }))
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || savingTitleId === item.id || !dirty}
+                        onClick={() => void saveTitle(item.id)}
+                        className="btn-ghost !py-1.5 !px-2 text-xs inline-flex items-center gap-1 disabled:opacity-40"
+                        title="保存标题"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        保存
+                      </button>
+                    </div>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {formatBytes(item.size)} · {item.album?.title || '未归类'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <time className="text-xs hidden md:block" style={{ color: 'var(--text-muted)' }}>
+                    {formatDateTime(item.createdAt)}
+                  </time>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleBatchDelete([item.id])}
+                    className="btn-ghost !p-2 text-red-600 disabled:opacity-50"
+                    aria-label="删除"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 

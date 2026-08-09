@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { fetchSignedUrl } from '@/lib/sign-client';
+import { mediaDisplayTitle } from '@/lib/utils';
 
 export type LightboxItem = {
   id: string;
@@ -9,6 +10,8 @@ export type LightboxItem = {
   /** COS key：有则灯箱会按需拉原图（列表可先用缩略图） */
   key?: string;
   filename: string;
+  /** 可选展示标题；顶栏优先 title || filename */
+  title?: string | null;
   mimeType: string;
   width?: number | null;
   height?: number | null;
@@ -130,7 +133,9 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
         className="flex items-center justify-between px-4 py-3 text-sm glass-header text-[var(--text)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="truncate max-w-[50%] font-medium">{current.filename}</span>
+        <span className="truncate max-w-[50%] font-medium">
+          {mediaDisplayTitle(current.title, current.filename)}
+        </span>
         <div className="flex items-center gap-2">
           <span className="text-[var(--text-muted)] text-xs">
             {index + 1} / {items.length}

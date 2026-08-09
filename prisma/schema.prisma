@@ -32,6 +32,8 @@ model Media {
   album       Album?    @relation(fields: [albumId], references: [id], onDelete: SetNull)
   key         String    @unique
   filename    String
+  /// 展示标题（可选）；filename 始终保留原文件名
+  title       String?
   mimeType    String
   size        Int
   width       Int?

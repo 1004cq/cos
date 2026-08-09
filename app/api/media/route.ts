@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { headObjectSize } from '@/lib/cos';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
+import { normalizeMediaTitle } from '@/lib/utils';
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,6 +29,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `不支持的类型: ${mimeType}` }, { status: 400 });
     }
 
+    let title: string | null = null;
+    if ('title' in body) {
+      try {
+        title = normalizeMediaTitle(body.title);
+      } catch (e: unknown) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : '标题无效' },
+          { status: 400 }
+        );
+      }
+    }
+
     const clientSize = typeof size === 'number' ? size : parseInt(String(size), 10);
     if (!Number.isFinite(clientSize) || clientSize < 0) {
       return NextResponse.json({ error: '无效的 size' }, { status: 400 });
@@ -48,6 +61,7 @@ export async function POST(req: NextRequest) {
       data: {
         key,
         filename,
+        title,
         mimeType,
         size: storedSize,
         width: width || null,
