@@ -111,17 +111,18 @@ export default function AlbumsPage() {
               className="rounded-3xl glass overflow-hidden transition hover:shadow-lg"
             >
               <div
-                className="aspect-[16/10] bg-white/40 no-save"
+                className="aspect-[16/10] bg-white/40 no-save relative overflow-hidden"
                 onContextMenu={(e) => e.preventDefault()}
                 onDragStart={(e) => e.preventDefault()}
               >
                 {covers[album.id] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={covers[album.id]}
-                    alt={album.title}
-                    className="w-full h-full object-cover"
-                    draggable={false}
+                  <div
+                    className="absolute inset-0 bg-cover bg-center"
+                    style={{
+                      backgroundImage: `url(${JSON.stringify(covers[album.id])})`,
+                    }}
+                    role="img"
+                    aria-label={album.title}
                   />
                 ) : (
                   <div

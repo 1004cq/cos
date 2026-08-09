@@ -169,26 +169,27 @@ export default function HomePage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
-                    {images.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="media-tile no-save"
-                        onClick={() => openItem(item)}
-                        onContextMenu={(e) => e.preventDefault()}
-                        onDragStart={(e) => e.preventDefault()}
-                        aria-label={item.filename}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={item.thumbUrl || item.url}
-                          alt={item.filename}
-                          loading="lazy"
-                          decoding="async"
-                          draggable={false}
-                        />
-                      </button>
-                    ))}
+                    {images.map((item) => {
+                      const src = item.thumbUrl || item.url;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="media-tile no-save"
+                          onClick={() => openItem(item)}
+                          onContextMenu={(e) => e.preventDefault()}
+                          onDragStart={(e) => e.preventDefault()}
+                          aria-label={item.filename}
+                        >
+                          {/* background-image：Safari/微信长按更难出「保存图片」 */}
+                          <div
+                            className="media-cover"
+                            style={{ backgroundImage: `url(${JSON.stringify(src)})` }}
+                            aria-hidden
+                          />
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -228,11 +229,12 @@ export default function HomePage() {
                             muted
                             playsInline
                             preload="metadata"
+                            controls={false}
                             controlsList="nodownload"
                             disablePictureInPicture
                             onContextMenu={(e) => e.preventDefault()}
                           />
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition pointer-events-none">
                             <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg">
                               ▶
                             </span>

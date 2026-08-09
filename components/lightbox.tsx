@@ -131,7 +131,7 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
             key={current.id}
             src={current.url}
             controls
-            controlsList="nodownload noplaybackrate"
+            controlsList="nodownload noplaybackrate noremoteplayback"
             disablePictureInPicture
             autoPlay
             playsInline

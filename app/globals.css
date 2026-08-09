@@ -145,20 +145,25 @@ body::before {
   }
 }
 
-/* 手机端防长按保存 / 禁止拖拽下载（不降低画质） */
+/* 手机端去除长按「保存图片/视频」（不降低画质、不拦截页面滚动） */
 .no-save {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-  -webkit-user-drag: none;
 }
 .no-save img,
 .no-save video {
   pointer-events: none;
   -webkit-user-drag: none;
-  user-select: none;
 }
-/* 灯箱内带控件的视频仍需可点按播放 */
+/* 灯箱内带控件的视频需可点按播放；左右切换/关闭仍走外层按钮 */
 .no-save video[controls] {
   pointer-events: auto;
+}
+
+.media-tile .media-cover {
+  @apply absolute inset-0 bg-cover bg-center transition duration-300;
+}
+.media-tile:hover .media-cover {
+  transform: scale(1.04);
 }
