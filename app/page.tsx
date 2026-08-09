@@ -108,6 +108,9 @@ export default function TimelinePage() {
           </p>
         </div>
         <div className="flex gap-2 text-sm">
+          <Link href="/albums" className="btn-ghost !py-1.5 !px-3">
+            相册
+          </Link>
           <Link href="/admin/upload" className="btn-primary !py-1.5 !px-3">
             上传
           </Link>

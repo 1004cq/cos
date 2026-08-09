@@ -119,26 +119,77 @@ export default function UploadPage() {
     [albumId, updateItem]
   );
 
-  function addFiles(files: File[]) {
-    const newItems: UploadItem[] = files.map((file) => ({
-      id: makeId(),
-      file,
-      progress: 0,
-      status: 'pending' as const,
-    }));
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const mediaFiles = files.filter(
+        (f) => f.type.startsWith('image/') || f.type.startsWith('video/') || !f.type
+      );
+      if (mediaFiles.length === 0) return;
 
-    setItems((prev) => [...prev, ...newItems]);
-    newItems.forEach((item) => {
-      void uploadOne(item);
-    });
-  }
+      const newItems: UploadItem[] = mediaFiles.map((file) => {
+        // 粘贴的截图常无文件名
+        const named =
+          file.name && file.name !== 'image.png' && file.name !== 'blob'
+            ? file
+            : new File(
+                [file],
+                `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${
+                  file.type.includes('png')
+                    ? 'png'
+                    : file.type.includes('jpeg') || file.type.includes('jpg')
+                      ? 'jpg'
+                      : file.type.includes('webp')
+                        ? 'webp'
+                        : 'bin'
+                }`,
+                { type: file.type || 'application/octet-stream' }
+              );
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    addFiles(Array.from(e.dataTransfer.files));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [albumId]);
+        return {
+          id: makeId(),
+          file: named,
+          progress: 0,
+          status: 'pending' as const,
+        };
+      });
+
+      setItems((prev) => [...prev, ...newItems]);
+      newItems.forEach((item) => {
+        void uploadOne(item);
+      });
+    },
+    [uploadOne]
+  );
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      addFiles(Array.from(e.dataTransfer.files));
+    },
+    [addFiles]
+  );
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    }
+
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [addFiles]);
 
   const successCount = items.filter((i) => i.status === 'success').length;
   const errorCount = items.filter((i) => i.status === 'error').length;
@@ -188,8 +239,11 @@ export default function UploadPage() {
           dragging ? 'border-blue-400 bg-blue-50/40' : 'border-white/60'
         }`}
       >
-        <p className="mb-4" style={{ color: 'var(--text-muted)' }}>
+        <p className="mb-2" style={{ color: 'var(--text-muted)' }}>
           拖拽文件到这里，或点击选择
+        </p>
+        <p className="mb-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+          也支持 Ctrl/⌘ + V 粘贴截图
         </p>
         <input
           type="file"

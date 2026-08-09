@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Images, FolderOpen, Upload, ArrowRight } from 'lucide-react';
+import { Images, FolderOpen, Upload, ArrowRight, Share2, HardDrive } from 'lucide-react';
 import { formatBytes, formatDateTime } from '@/lib/utils';
 
 type MediaItem = {
@@ -14,15 +14,19 @@ type MediaItem = {
   album?: { id: string; title: string } | null;
 };
 
-type AlbumItem = {
-  id: string;
-  title: string;
-  _count?: { media: number };
+type Stats = {
+  mediaTotal: number;
+  albumTotal: number;
+  shareTotal: number;
+  shareActive: number;
+  shareExpired: number;
+  totalBytes: number;
+  imageCount: number;
+  videoCount: number;
 };
 
 export default function AdminDashboardPage() {
-  const [mediaTotal, setMediaTotal] = useState(0);
-  const [albumTotal, setAlbumTotal] = useState(0);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [recent, setRecent] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -32,26 +36,23 @@ export default function AdminDashboardPage() {
       setLoading(true);
       setError('');
       try {
-        const [mediaRes, albumsRes] = await Promise.all([
+        const [statsRes, mediaRes] = await Promise.all([
+          fetch('/api/stats'),
           fetch('/api/media/list?page=1&pageSize=8'),
-          fetch('/api/albums'),
         ]);
 
+        if (!statsRes.ok) {
+          const err = await statsRes.json().catch(() => ({}));
+          throw new Error(err.error || '加载统计失败');
+        }
         if (!mediaRes.ok) {
           const err = await mediaRes.json().catch(() => ({}));
           throw new Error(err.error || '加载媒体失败');
         }
-        if (!albumsRes.ok) {
-          const err = await albumsRes.json().catch(() => ({}));
-          throw new Error(err.error || '加载相册失败');
-        }
 
+        setStats(await statsRes.json());
         const mediaData = await mediaRes.json();
-        const albums: AlbumItem[] = await albumsRes.json();
-
-        setMediaTotal(mediaData.total ?? 0);
         setRecent(mediaData.items ?? []);
-        setAlbumTotal(albums.length);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : '加载失败');
       } finally {
@@ -59,7 +60,7 @@ export default function AdminDashboardPage() {
       }
     }
 
-    load();
+    void load();
   }, []);
 
   return (
@@ -68,12 +69,15 @@ export default function AdminDashboardPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">仪表盘</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            概览媒体与相册状态
+            概览媒体、相册与分享
           </p>
         </div>
         <div className="flex gap-2">
           <Link href="/" className="btn-ghost text-sm">
-            查看时间轴
+            时间轴
+          </Link>
+          <Link href="/albums" className="btn-ghost text-sm">
+            相册
           </Link>
           <Link href="/admin/upload" className="btn-primary text-sm inline-flex items-center gap-1.5">
             <Upload className="w-4 h-4" />
@@ -86,18 +90,23 @@ export default function AdminDashboardPage() {
         <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-3xl glass p-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-3xl glass p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-2xl bg-white/70 flex items-center justify-center">
               <Images className="w-5 h-5 text-blue-600" />
             </div>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              媒体总数
+              媒体
             </p>
           </div>
           <p className="text-3xl font-semibold tracking-tight">
-            {loading ? '—' : mediaTotal}
+            {loading || !stats ? '—' : stats.mediaTotal}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            {stats
+              ? `图 ${stats.imageCount} · 视频 ${stats.videoCount}`
+              : '图片 / 视频'}
           </p>
           <Link
             href="/admin/media"
@@ -107,17 +116,17 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
 
-        <div className="rounded-3xl glass p-6">
+        <div className="rounded-3xl glass p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-2xl bg-white/70 flex items-center justify-center">
               <FolderOpen className="w-5 h-5 text-blue-600" />
             </div>
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              相册数
+              相册
             </p>
           </div>
           <p className="text-3xl font-semibold tracking-tight">
-            {loading ? '—' : albumTotal}
+            {loading || !stats ? '—' : stats.albumTotal}
           </p>
           <Link
             href="/admin/albums"
@@ -125,6 +134,48 @@ export default function AdminDashboardPage() {
           >
             管理相册 <ArrowRight className="w-3.5 h-3.5" />
           </Link>
+        </div>
+
+        <div className="rounded-3xl glass p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/70 flex items-center justify-center">
+              <Share2 className="w-5 h-5 text-blue-600" />
+            </div>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              分享
+            </p>
+          </div>
+          <p className="text-3xl font-semibold tracking-tight">
+            {loading || !stats ? '—' : stats.shareTotal}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            {stats
+              ? `有效 ${stats.shareActive} · 过期 ${stats.shareExpired}`
+              : '有效 / 过期'}
+          </p>
+          <Link
+            href="/admin/share"
+            className="inline-flex items-center gap-1 text-sm text-blue-600 mt-3 hover:underline"
+          >
+            分享管理 <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="rounded-3xl glass p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/70 flex items-center justify-center">
+              <HardDrive className="w-5 h-5 text-blue-600" />
+            </div>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              占用体积
+            </p>
+          </div>
+          <p className="text-3xl font-semibold tracking-tight">
+            {loading || !stats ? '—' : formatBytes(stats.totalBytes)}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            按数据库记录合计
+          </p>
         </div>
       </div>
 

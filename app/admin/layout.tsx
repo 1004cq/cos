@@ -104,6 +104,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Home className="w-4 h-4" />
             时间轴
           </Link>
+          <Link
+            href="/albums"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm hover:bg-white/50 transition"
+          >
+            <FolderOpen className="w-4 h-4" />
+            前台相册
+          </Link>
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: '/admin/login' })}
