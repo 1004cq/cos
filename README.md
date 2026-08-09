@@ -70,12 +70,17 @@ graph TB
 
 ### 2.3 核心数据流
 
-**上传（预签名直传）**
+**上传（预签名直传 · 原文件字节无损）**
 ```
-管理员 → POST /api/upload/presign → 后端返回 PUT 预签名 URL
-      → 前端直接 PUT 到 COS
-      → POST /api/media 入库
+管理员 → POST /api/upload/presign（filename / contentType / size）
+      → 前端 XMLHttpRequest PUT 原 File 到 COS（Content-Type 与预签名一致）
+      → POST /api/media 入库（写入真实 mimeType；并 HEAD COS 核对 size）
 ```
+
+- iPhone 原相机 `.MOV` / `.MP4`（HEVC 或 H.264）按原字节上传，**不做转码/压缩**。
+- 当前为**单次 PUT**（适合中等文件；上传页对超过 100MB 会提示保持屏幕常亮）。
+- **超大文件后续可加 multipart / 分片上传，仍按原字节无损**，不改变私有桶 + 签名访问模型。
+- 建议用 **Safari** 打开上传页，避免微信内置浏览器；请直接从系统相册选原视频。
 
 **访问（强制签名）**
 ```

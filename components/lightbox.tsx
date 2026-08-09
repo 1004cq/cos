@@ -131,6 +131,8 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
             src={current.url}
             controls
             autoPlay
+            playsInline
+            preload="metadata"
             className="max-h-[calc(100vh-100px)] max-w-full rounded-2xl shadow-2xl"
           />
         ) : (
