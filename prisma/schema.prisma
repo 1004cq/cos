@@ -56,7 +56,6 @@ model ShareLink {
   createdAt DateTime @default(now())
 }
 
-/// 访客访问记录（IP + 路径 + 次数统计用）
 model Visit {
   id         String   @id @default(cuid())
   ip         String
@@ -65,7 +64,6 @@ model Visit {
   referer    String?
   userAgent  String?
   shareToken String?
-  /// page | share | api
   kind       String   @default("page")
   createdAt  DateTime @default(now())
 
@@ -74,4 +72,13 @@ model Visit {
   @@index([path])
   @@index([shareToken])
   @@index([kind])
+}
+
+/// 键值配置（COS 等），敏感值可加密存储
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  /// 是否敏感（前端展示脱敏）
+  secret    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
 }
