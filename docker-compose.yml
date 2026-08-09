@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cos
+      POSTGRES_PASSWORD: cos_password_change_me
+      POSTGRES_DB: cos
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # 应用服务（生产时可取消注释并构建）
+  # app:
+  #   build: .
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     DATABASE_URL: postgresql://cos:cos_password_change_me@db:5432/cos?schema=public
+  #     COS_SECRET_ID: ${COS_SECRET_ID}
+  #     COS_SECRET_KEY: ${COS_SECRET_KEY}
+  #     COS_BUCKET: ${COS_BUCKET}
+  #     COS_REGION: ${COS_REGION}
+  #     COS_CDN_DOMAIN: ${COS_CDN_DOMAIN}
+  #     NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+  #     NEXTAUTH_URL: ${NEXTAUTH_URL}
+  #   depends_on:
+  #     - db
+
+volumes:
+  postgres_data:
