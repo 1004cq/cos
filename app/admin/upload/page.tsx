@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { RotateCcw } from 'lucide-react';
 
 interface UploadItem {
+  id: string;
   file: File;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
@@ -13,184 +13,263 @@ interface UploadItem {
   key?: string;
 }
 
+type Album = {
+  id: string;
+  title: string;
+};
+
+function makeId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 export default function UploadPage() {
-  const { status } = useSession();
-  const router = useRouter();
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [albumId, setAlbumId] = useState('');
+  const [albumsError, setAlbumsError] = useState('');
 
-  if (status === 'unauthenticated') {
-    router.push('/admin/login');
-    return null;
+  useEffect(() => {
+    async function loadAlbums() {
+      try {
+        const res = await fetch('/api/albums');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || '加载相册失败');
+        }
+        setAlbums(await res.json());
+      } catch (e: unknown) {
+        setAlbumsError(e instanceof Error ? e.message : '加载相册失败');
+      }
+    }
+    void loadAlbums();
+  }, []);
+
+  const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const uploadOne = useCallback(
+    async (item: UploadItem) => {
+      updateItem(item.id, { status: 'uploading', progress: 0, error: undefined });
+
+      try {
+        const presignRes = await fetch('/api/upload/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: item.file.name,
+            contentType: item.file.type || 'application/octet-stream',
+            size: item.file.size,
+          }),
+        });
+
+        if (!presignRes.ok) {
+          const err = await presignRes.json().catch(() => ({}));
+          throw new Error(err.error || '获取预签名失败');
+        }
+
+        const { url, key } = await presignRes.json();
+
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', url);
+          xhr.setRequestHeader('Content-Type', item.file.type || 'application/octet-stream');
+
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const progress = Math.round((e.loaded / e.total) * 100);
+              updateItem(item.id, { progress, status: 'uploading' });
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`上传失败: ${xhr.status}`));
+          };
+          xhr.onerror = () => reject(new Error('网络错误'));
+          xhr.send(item.file);
+        });
+
+        const mediaRes = await fetch('/api/media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key,
+            filename: item.file.name,
+            mimeType: item.file.type || 'application/octet-stream',
+            size: item.file.size,
+            albumId: albumId || null,
+          }),
+        });
+
+        if (!mediaRes.ok) {
+          const err = await mediaRes.json().catch(() => ({}));
+          throw new Error(err.error || '入库失败');
+        }
+
+        updateItem(item.id, { progress: 100, status: 'success', key });
+      } catch (err: unknown) {
+        updateItem(item.id, {
+          status: 'error',
+          error: err instanceof Error ? err.message : '上传失败',
+        });
+      }
+    },
+    [albumId, updateItem]
+  );
+
+  function addFiles(files: File[]) {
+    const newItems: UploadItem[] = files.map((file) => ({
+      id: makeId(),
+      file,
+      progress: 0,
+      status: 'pending' as const,
+    }));
+
+    setItems((prev) => [...prev, ...newItems]);
+    newItems.forEach((item) => {
+      void uploadOne(item);
+    });
   }
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     addFiles(Array.from(e.dataTransfer.files));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [albumId]);
 
-  function addFiles(files: File[]) {
-    const newItems: UploadItem[] = files.map((file) => ({
-      file,
-      progress: 0,
-      status: 'pending',
-    }));
-    setItems((prev) => {
-      const start = prev.length;
-      const next = [...prev, ...newItems];
-      newItems.forEach((item, idx) => uploadOne(item, start + idx));
-      return next;
-    });
-  }
-
-  async function uploadOne(item: UploadItem, index: number) {
-    try {
-      const presignRes = await fetch('/api/upload/presign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: item.file.name,
-          contentType: item.file.type || 'application/octet-stream',
-          size: item.file.size,
-        }),
-      });
-
-      if (!presignRes.ok) {
-        const err = await presignRes.json();
-        throw new Error(err.error || '获取预签名失败');
-      }
-
-      const { url, key } = await presignRes.json();
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', url);
-        xhr.setRequestHeader('Content-Type', item.file.type || 'application/octet-stream');
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const progress = Math.round((e.loaded / e.total) * 100);
-            setItems((prev) => {
-              const next = [...prev];
-              next[index] = { ...next[index], progress, status: 'uploading' };
-              return next;
-            });
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`上传失败: ${xhr.status}`));
-        };
-        xhr.onerror = () => reject(new Error('网络错误'));
-        xhr.send(item.file);
-      });
-
-      const mediaRes = await fetch('/api/media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key,
-          filename: item.file.name,
-          mimeType: item.file.type || 'application/octet-stream',
-          size: item.file.size,
-        }),
-      });
-
-      if (!mediaRes.ok) throw new Error('入库失败');
-
-      setItems((prev) => {
-        const next = [...prev];
-        next[index] = { ...next[index], progress: 100, status: 'success', key };
-        return next;
-      });
-    } catch (err: any) {
-      setItems((prev) => {
-        const next = [...prev];
-        next[index] = {
-          ...next[index],
-          status: 'error',
-          error: err.message || '上传失败',
-        };
-        return next;
-      });
-    }
-  }
+  const successCount = items.filter((i) => i.status === 'success').length;
+  const errorCount = items.filter((i) => i.status === 'error').length;
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">上传照片 / 视频</h1>
-          <Link href="/" className="btn-ghost !py-1.5 !px-3 text-sm">
-            返回时间轴
-          </Link>
-        </div>
-
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          className={`rounded-3xl p-12 text-center transition border-2 border-dashed glass ${
-            dragging ? 'border-blue-400 bg-blue-50/40' : 'border-white/60'
-          }`}
-        >
-          <p className="mb-4" style={{ color: 'var(--text-muted)' }}>
-            拖拽文件到这里，或点击选择
+    <div className="space-y-6 max-w-3xl">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">上传</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+            预签名直传 COS · 原画质
           </p>
-          <input
-            type="file"
-            multiple
-            accept="image/*,video/*"
-            className="hidden"
-            id="file-input"
-            onChange={(e) => {
-              if (e.target.files) addFiles(Array.from(e.target.files));
-            }}
-          />
-          <label htmlFor="file-input" className="btn-primary inline-block cursor-pointer">
-            选择文件
-          </label>
         </div>
-
-        {items.length > 0 && (
-          <div className="mt-8 space-y-3">
-            {items.map((item, i) => (
-              <div key={i} className="flex items-center gap-4 p-4 rounded-2xl glass">
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-medium">{item.file.name}</p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {(item.file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </div>
-                <div className="w-32 text-right text-sm">
-                  {item.status === 'uploading' && (
-                    <div className="h-2 rounded-full overflow-hidden bg-white/50">
-                      <div
-                        className="h-full bg-blue-500 transition-all"
-                        style={{ width: `${item.progress}%` }}
-                      />
-                    </div>
-                  )}
-                  {item.status === 'success' && (
-                    <span className="text-green-600">完成</span>
-                  )}
-                  {item.status === 'error' && (
-                    <span className="text-red-500">{item.error}</span>
-                  )}
-                  {item.status === 'pending' && (
-                    <span style={{ color: 'var(--text-muted)' }}>等待中</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <Link href="/" className="btn-ghost text-sm">
+          查看时间轴
+        </Link>
       </div>
+
+      <div className="rounded-2xl glass p-4 space-y-2">
+        <label className="block text-sm font-medium">归属相册（可选）</label>
+        <select
+          className="input-glass"
+          value={albumId}
+          onChange={(e) => setAlbumId(e.target.value)}
+        >
+          <option value="">不归入相册</option>
+          {albums.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.title}
+            </option>
+          ))}
+        </select>
+        {albumsError && <p className="text-xs text-red-500">{albumsError}</p>}
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          选择后，本次新上传的文件将写入该相册；已在队列中的任务沿用开始时的选择。
+        </p>
+      </div>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        className={`rounded-3xl p-12 text-center transition border-2 border-dashed glass ${
+          dragging ? 'border-blue-400 bg-blue-50/40' : 'border-white/60'
+        }`}
+      >
+        <p className="mb-4" style={{ color: 'var(--text-muted)' }}>
+          拖拽文件到这里，或点击选择
+        </p>
+        <input
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          className="hidden"
+          id="file-input"
+          onChange={(e) => {
+            if (e.target.files) addFiles(Array.from(e.target.files));
+            e.target.value = '';
+          }}
+        />
+        <label htmlFor="file-input" className="btn-primary inline-block cursor-pointer">
+          选择文件
+        </label>
+      </div>
+
+      {items.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm" style={{ color: 'var(--text-muted)' }}>
+            <span>
+              完成 {successCount} · 失败 {errorCount} · 共 {items.length}
+            </span>
+            {errorCount > 0 && (
+              <button
+                type="button"
+                className="btn-ghost !py-1.5 !px-3 text-sm inline-flex items-center gap-1"
+                onClick={() => {
+                  items
+                    .filter((i) => i.status === 'error')
+                    .forEach((item) => void uploadOne(item));
+                }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                重试全部失败
+              </button>
+            )}
+          </div>
+
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center gap-4 p-4 rounded-2xl glass">
+              <div className="flex-1 min-w-0">
+                <p className="truncate text-sm font-medium">{item.file.name}</p>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {(item.file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <div className="w-36 text-right text-sm">
+                {item.status === 'uploading' && (
+                  <div className="h-2 rounded-full overflow-hidden bg-white/50">
+                    <div
+                      className="h-full bg-blue-500 transition-all"
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
+                )}
+                {item.status === 'success' && (
+                  <span className="text-green-600">完成</span>
+                )}
+                {item.status === 'error' && (
+                  <div className="space-y-1">
+                    <p className="text-red-500 text-xs break-all">{item.error}</p>
+                    <button
+                      type="button"
+                      onClick={() => void uploadOne(item)}
+                      className="text-blue-600 text-xs hover:underline inline-flex items-center gap-0.5"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      重试
+                    </button>
+                  </div>
+                )}
+                {item.status === 'pending' && (
+                  <span style={{ color: 'var(--text-muted)' }}>等待中</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

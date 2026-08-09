@@ -113,4 +113,27 @@ export function generateKey(filename: string): string {
   return `media/${y}/${m}/${d}/${Date.now()}-${random}.${ext}`;
 }
 
+/**
+ * 删除 COS 对象（可选，管理端删除媒体时调用）
+ */
+export function deleteObject(key: string): Promise<void> {
+  if (!key.startsWith('media/')) {
+    return Promise.reject(new Error('非法的对象键'));
+  }
+
+  return new Promise((resolve, reject) => {
+    cos.deleteObject(
+      {
+        Bucket,
+        Region,
+        Key: key,
+      },
+      (err) => {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+}
+
 export { cos, Bucket, Region };

@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '缺少必要字段' }, { status: 400 });
     }
 
+    if (typeof key !== 'string' || !key.startsWith('media/')) {
+      return NextResponse.json({ error: '非法的对象键' }, { status: 400 });
+    }
+
     const media = await prisma.media.create({
       data: {
         key,

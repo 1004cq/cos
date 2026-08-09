@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Lightbox, type LightboxItem } from '@/components/lightbox';
 import Link from 'next/link';
+import { mapWithConcurrency } from '@/lib/utils';
 
 type MediaRow = {
   id: string;
@@ -23,11 +24,14 @@ type TimelineItem = LightboxItem & {
   createdAt: string;
 };
 
+const SIGN_CONCURRENCY = 6;
+
 export default function TimelinePage() {
   const { status } = useSession();
   const router = useRouter();
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -39,39 +43,42 @@ export default function TimelinePage() {
 
     async function load() {
       setLoading(true);
+      setError('');
       try {
         const res = await fetch('/api/media/list?pageSize=60');
-        if (!res.ok) throw new Error('加载失败');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || '加载失败');
+        }
         const data = await res.json();
         const media: MediaRow[] = data.items || [];
 
-        const signed = await Promise.all(
-          media.map(async (m) => {
-            const sRes = await fetch(`/api/sign?key=${encodeURIComponent(m.key)}`);
-            if (!sRes.ok) return null;
-            const sData = await sRes.json();
-            return {
-              id: m.id,
-              url: sData.url as string,
-              filename: m.filename,
-              mimeType: m.mimeType,
-              width: m.width,
-              height: m.height,
-              takenAt: m.takenAt,
-              createdAt: m.createdAt,
-            } satisfies TimelineItem;
-          })
-        );
+        const signed = await mapWithConcurrency(media, SIGN_CONCURRENCY, async (m) => {
+          const sRes = await fetch(`/api/sign?key=${encodeURIComponent(m.key)}`);
+          if (!sRes.ok) return null;
+          const sData = await sRes.json();
+          return {
+            id: m.id,
+            url: sData.url as string,
+            filename: m.filename,
+            mimeType: m.mimeType,
+            width: m.width,
+            height: m.height,
+            takenAt: m.takenAt,
+            createdAt: m.createdAt,
+          } satisfies TimelineItem;
+        });
 
         setItems(signed.filter(Boolean) as TimelineItem[]);
-      } catch (e) {
+      } catch (e: unknown) {
         console.error(e);
+        setError(e instanceof Error ? e.message : '加载失败');
       } finally {
         setLoading(false);
       }
     }
 
-    load();
+    void load();
   }, [status]);
 
   if (status === 'loading' || status === 'unauthenticated') {
@@ -104,11 +111,15 @@ export default function TimelinePage() {
           <Link href="/admin/upload" className="btn-primary !py-1.5 !px-3">
             上传
           </Link>
-          <Link href="/admin/login" className="btn-ghost !py-1.5 !px-3">
+          <Link href="/admin" className="btn-ghost !py-1.5 !px-3">
             管理
           </Link>
         </div>
       </header>
+
+      {error && (
+        <p className="text-center py-6 text-sm text-red-500">{error}</p>
+      )}
 
       {loading ? (
         <p className="text-center py-20" style={{ color: 'var(--text-muted)' }}>
