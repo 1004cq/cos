@@ -16,11 +16,32 @@ export type LightboxItem = {
   mimeType: string;
   width?: number | null;
   height?: number | null;
-  thumbUrl?: string;
+  thumbUrl?: string | null;
   takenAt?: string | null;
   createdAt?: string;
   duration?: number | null;
 };
+
+function FilmstripThumb({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(!src);
+
+  if (!src || failed) {
+    return <div className="w-full h-full bg-[#E5E5EA]" aria-hidden />;
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="w-full h-full object-cover bg-[#E5E5EA]"
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 type Props = {
   items: LightboxItem[];
@@ -228,7 +249,9 @@ export function Lightbox({
           className="photos-filmstrip shrink-0 flex gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar bg-white border-t border-black/[0.06]"
         >
           {items.map((item, i) => {
-            const thumb = item.thumbUrl || item.url;
+            const isVideo = item.mimeType.startsWith('video/');
+            /** 缩略条只用 thumb；视频禁止用原片 URL 当 img */
+            const thumb = item.thumbUrl || (isVideo ? null : item.url);
             const active = i === index;
             return (
               <button
@@ -237,19 +260,13 @@ export function Lightbox({
                 data-thumb-index={i}
                 onClick={() => onChange(i)}
                 className={cn(
-                  'photos-filmstrip-thumb shrink-0 w-11 h-11 rounded-[6px] overflow-hidden border-2 transition-all duration-200',
+                  'photos-filmstrip-thumb shrink-0 w-11 h-11 rounded-[6px] overflow-hidden border-2 transition-all duration-200 bg-[#E5E5EA]',
                   active
                     ? 'border-[#007AFF] opacity-100 scale-105'
                     : 'border-transparent opacity-50'
                 )}
               >
-                {item.mimeType.startsWith('video/') ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={thumb} alt="" className="w-full h-full object-cover bg-[#E5E5EA]" />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={thumb} alt="" className="w-full h-full object-cover" draggable={false} />
-                )}
+                <FilmstripThumb src={thumb} />
               </button>
             );
           })}

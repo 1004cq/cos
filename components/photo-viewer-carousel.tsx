@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePinch } from '@use-gesture/react';
 import { Loader2 } from 'lucide-react';
-import { fetchSignedUrl } from '@/lib/sign-client';
 import { mediaDisplayTitle } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import type { LightboxItem } from '@/components/lightbox';
@@ -23,29 +22,73 @@ type SlideProps = {
 
 function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: SlideProps) {
   const isVideo = item.mimeType.startsWith('video/');
-  const [displayUrl, setDisplayUrl] = useState(item.url);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const thumbUrl = item.thumbUrl || null;
+  const fullUrl = item.url || '';
+  const [displayUrl, setDisplayUrl] = useState(thumbUrl || fullUrl);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(() =>
+    thumbUrl ? 'ready' : fullUrl ? 'loading' : 'error'
+  );
+  const [showSpinner, setShowSpinner] = useState(!thumbUrl && Boolean(fullUrl));
   const lastTapRef = useRef(0);
   const pinchStartScale = useRef(1);
 
   useEffect(() => {
-    if (!active) return;
-    setDisplayUrl(item.url);
-    setStatus(item.url ? 'loading' : 'error');
+    if (!active || isVideo) return;
     onScaleChange(1);
 
-    if (!item.key || isVideo) return;
+    const thumb = item.thumbUrl || null;
+    const full = item.url || '';
     let cancelled = false;
-    void fetchSignedUrl(item.key).then((url) => {
-      if (!cancelled && url) {
-        setDisplayUrl(url);
-        setStatus('loading');
+    let probe: HTMLImageElement | null = null;
+
+    if (thumb) {
+      setDisplayUrl(thumb);
+      setStatus('ready');
+      setShowSpinner(Boolean(full && full !== thumb));
+    } else if (full) {
+      setDisplayUrl(full);
+      setStatus('loading');
+      setShowSpinner(true);
+    } else {
+      setDisplayUrl('');
+      setStatus('error');
+      setShowSpinner(false);
+      return;
+    }
+
+    if (!full || full === thumb) {
+      setShowSpinner(false);
+      return;
+    }
+
+    probe = new Image();
+    probe.onload = () => {
+      if (cancelled) return;
+      setDisplayUrl(full);
+      setStatus('ready');
+      setShowSpinner(false);
+    };
+    probe.onerror = () => {
+      if (cancelled) return;
+      if (thumb) {
+        setDisplayUrl(thumb);
+        setStatus('error');
+      } else {
+        setStatus('error');
       }
-    });
+      setShowSpinner(false);
+    };
+    probe.src = full;
+
     return () => {
       cancelled = true;
+      if (probe) {
+        probe.onload = null;
+        probe.onerror = null;
+        probe.src = '';
+      }
     };
-  }, [item.id, item.url, item.key, isVideo, active, onScaleChange]);
+  }, [item.id, item.url, item.thumbUrl, isVideo, active, onScaleChange]);
 
   const bindPinch = usePinch(
     ({ offset: [s], first, last, event }) => {
@@ -82,16 +125,31 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   if (isVideo) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-white min-h-0">
-        <div className="flex-1 w-full flex items-center justify-center min-h-0 px-1">
-          <video
-            ref={active ? videoRef : undefined}
-            src={item.url}
-            playsInline
-            preload="metadata"
-            muted={false}
-            className="max-h-full max-w-full w-auto h-auto object-contain"
-            onContextMenu={blockSave}
-          />
+        <div className="flex-1 w-full flex items-center justify-center min-h-0 px-1 relative">
+          {active ? (
+            <video
+              ref={videoRef}
+              src={fullUrl || undefined}
+              poster={thumbUrl || undefined}
+              playsInline
+              preload="metadata"
+              controls={false}
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
+              className="max-h-full max-w-full w-auto h-auto object-contain"
+              onContextMenu={blockSave}
+            />
+          ) : thumbUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={thumbUrl}
+              alt=""
+              className="max-h-full max-w-full object-contain"
+              draggable={false}
+            />
+          ) : (
+            <div className="w-full h-40 bg-[#E5E5EA]" />
+          )}
         </div>
         {active && videoRef && <PhotoViewerVideoBar videoRef={videoRef} active={active} />}
       </div>
@@ -103,18 +161,23 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   return (
     <div
       {...(active ? bindPinch() : {})}
-      className="w-full h-full flex items-center justify-center bg-white touch-none select-none"
+      className="w-full h-full flex items-center justify-center bg-white touch-none select-none relative"
       onDoubleClick={onDoubleClick}
       onTouchEnd={onTouchEndZoom}
       onContextMenu={blockSave}
     >
-      {status === 'loading' && active && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
+      {showSpinner && active && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none z-[1]">
           <Loader2 className="w-8 h-8 animate-spin text-[#8E8E93]" />
         </div>
       )}
-      {status === 'error' && active && (
+      {status === 'error' && active && !displayUrl && (
         <p className="text-sm text-red-500 pointer-events-none">加载失败</p>
+      )}
+      {status === 'error' && active && displayUrl && (
+        <p className="absolute bottom-4 left-0 right-0 text-center text-sm text-red-500 pointer-events-none z-[2]">
+          加载失败
+        </p>
       )}
       {displayUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -124,14 +187,23 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
           draggable={false}
           className={cn(
             'max-h-full max-w-full object-contain no-save will-change-transform',
-            status === 'ready' ? 'opacity-100' : 'opacity-0'
+            status === 'error' && !item.thumbUrl ? 'opacity-0' : 'opacity-100'
           )}
           style={{
             transform: active ? `scale(${imageScale})` : undefined,
             transition: imageScale === 1 ? 'transform 0.25s ease-out' : 'none',
           }}
-          onLoad={() => setStatus('ready')}
-          onError={() => setStatus('error')}
+          onLoad={() => {
+            if (displayUrl === fullUrl || !fullUrl) {
+              setStatus((s) => (s === 'error' ? s : 'ready'));
+              setShowSpinner(false);
+            }
+          }}
+          onError={() => {
+            if (displayUrl === thumbUrl && fullUrl && fullUrl !== thumbUrl) return;
+            setStatus('error');
+            setShowSpinner(false);
+          }}
           onContextMenu={blockSave}
         />
       )}
@@ -176,9 +248,14 @@ export function PhotoViewerCarousel({
   useEffect(() => {
     setDragX(0);
     onScaleChange(1);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.currentTime = 0;
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      try {
+        v.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
     }
   }, [index, onScaleChange]);
 

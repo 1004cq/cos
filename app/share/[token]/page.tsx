@@ -132,19 +132,33 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                 aria-label={label}
               >
                 {isVideo ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2">
-                    <span className="text-3xl" style={{ color: 'var(--text-muted)' }}>
-                      ▶
-                    </span>
-                    <span className="text-xs font-medium truncate w-full text-center">
-                      {label}
-                    </span>
-                  </div>
+                  item.thumbUrl ? (
+                    <div
+                      className="media-cover"
+                      style={{
+                        backgroundImage: `url(${JSON.stringify(item.thumbUrl)})`,
+                      }}
+                      role="img"
+                      aria-label={label}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2 bg-[#E5E5EA]">
+                      <span className="text-3xl" style={{ color: 'var(--text-muted)' }}>
+                        ▶
+                      </span>
+                      <span className="text-xs font-medium truncate w-full text-center">
+                        {label}
+                      </span>
+                    </div>
+                  )
                 ) : (
                   <div
                     className="media-cover"
                     style={{
-                      backgroundImage: `url(${JSON.stringify(item.thumbUrl || item.url)})`,
+                      backgroundImage: item.thumbUrl
+                        ? `url(${JSON.stringify(item.thumbUrl)})`
+                        : undefined,
+                      backgroundColor: '#E5E5EA',
                     }}
                     role="img"
                     aria-label={label}

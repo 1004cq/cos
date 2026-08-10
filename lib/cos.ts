@@ -78,9 +78,17 @@ function getObjectUrlWithClient(
 }
 
 export type SignOptions = {
+  /** 图片缩略（imageMogr2） */
   thumb?: boolean;
   thumbWidth?: number;
+  /** 视频封面帧（数据万象 ci-process=snapshot） */
+  snapshot?: boolean;
+  /** 截帧时间（秒），默认 0.1 */
+  snapshotTime?: number;
 };
+
+/** 图库/分享等批量签名的推荐并发上限 */
+export const SIGN_CONCURRENCY = 6;
 
 /** 生成上传预签名 URL（PUT）——始终 COS 源站，不使用 CDN 域名 */
 export async function getUploadPresignedUrl(
@@ -133,7 +141,12 @@ export async function getSignedUrl(
   const safeExpires = Math.min(Math.max(expires, 60), 3600);
   const query: Record<string, string> = {};
 
-  if (options?.thumb) {
+  if (options?.snapshot) {
+    const t = options.snapshotTime ?? 0.1;
+    query['ci-process'] = 'snapshot';
+    query['time'] = String(t);
+    query['format'] = 'jpg';
+  } else if (options?.thumb) {
     const w = options.thumbWidth ?? cfg.thumbWidth;
     query[`imageMogr2/thumbnail/${w}x${w}>/format/webp`] = '';
   }

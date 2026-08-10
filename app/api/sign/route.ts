@@ -48,16 +48,19 @@ export async function GET(req: NextRequest) {
 
     const wantThumb =
       thumbParam === '1' || thumbParam === 'true' || thumbParam === 'yes';
-    // 视频不走图片处理
-    const thumb = wantThumb && media.mimeType.startsWith('image/');
+    const isImage = media.mimeType.startsWith('image/');
+    const isVideo = media.mimeType.startsWith('video/');
 
-    const url = await getSignedUrl(key, expires, { thumb });
+    const url = await getSignedUrl(key, expires, {
+      thumb: wantThumb && isImage,
+      snapshot: wantThumb && isVideo,
+    });
 
     return NextResponse.json({
       url,
       expires,
       expiresAt: Date.now() + expires * 1000,
-      thumb,
+      thumb: wantThumb && (isImage || isVideo),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '生成签名失败';

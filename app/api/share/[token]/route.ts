@@ -3,8 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
-import { getSignedUrl } from '@/lib/cos';
+import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
 import { recordVisit } from '@/lib/visit';
+import { mapWithConcurrency } from '@/lib/utils';
 
 type Params = { params: Promise<{ token: string }> };
 
@@ -46,30 +47,37 @@ async function loadShareMedia(share: {
 }
 
 async function buildShareItems(mediaList: MediaRow[]) {
-  return Promise.all(
-    mediaList.map(async (m) => {
-      const isImage = m.mimeType.startsWith('image/');
-      const [url, thumbUrl] = await Promise.all([
-        getSignedUrl(m.key, 900),
-        isImage ? getSignedUrl(m.key, 900, { thumb: true }) : Promise.resolve(null),
-      ]);
+  return mapWithConcurrency(mediaList, SIGN_CONCURRENCY, async (m) => {
+    const isImage = m.mimeType.startsWith('image/');
+    const isVideo = m.mimeType.startsWith('video/');
 
-      return {
-        id: m.id,
-        key: m.key,
-        filename: m.filename,
-        title: m.title,
-        mimeType: m.mimeType,
-        size: m.size,
-        width: m.width,
-        height: m.height,
-        duration: m.duration,
-        takenAt: m.takenAt,
-        url,
-        thumbUrl: thumbUrl || url,
-      };
-    })
-  );
+    const url = await getSignedUrl(m.key, 900);
+    let thumbUrl: string | null = null;
+    if (isImage) {
+      thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
+    } else if (isVideo) {
+      try {
+        thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });
+      } catch {
+        thumbUrl = null;
+      }
+    }
+
+    return {
+      id: m.id,
+      key: m.key,
+      filename: m.filename,
+      title: m.title,
+      mimeType: m.mimeType,
+      size: m.size,
+      width: m.width,
+      height: m.height,
+      duration: m.duration,
+      takenAt: m.takenAt,
+      url,
+      thumbUrl,
+    };
+  });
 }
 
 async function resolveShareAccess(token: string, password: string) {

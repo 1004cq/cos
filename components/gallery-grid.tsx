@@ -7,6 +7,42 @@ import { formatDuration } from '@/lib/gallery-format';
 import { isCompactGrid, showTinyDuration } from '@/lib/gallery-density';
 import type { GalleryItem } from '@/components/gallery-types';
 
+function GridThumb({
+  src,
+  compactVideo,
+}: {
+  src?: string | null;
+  compactVideo?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showImg = Boolean(src) && !failed;
+
+  if (showImg) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src!}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="absolute inset-0 w-full h-full object-cover"
+        draggable={false}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  if (compactVideo) {
+    return (
+      <div className="absolute inset-0 bg-[#D1D1D6] flex items-center justify-center">
+        <Play className="w-[40%] h-[40%] text-white/90 drop-shadow" fill="currentColor" strokeWidth={0} />
+      </div>
+    );
+  }
+
+  return <div className="absolute inset-0 bg-[#E5E5EA]" />;
+}
+
 function GridCell({
   item,
   columns,
@@ -25,15 +61,8 @@ function GridCell({
   const isVideo = item.kind === 'video' || item.mimeType.startsWith('video/');
   const compact = isCompactGrid(columns);
   const tinyDuration = showTinyDuration(columns);
-  /** 网格内一律用缩略图 URL，减轻流量 */
-  const src = item.thumbUrl || item.url;
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [frameReady, setFrameReady] = useState(!isVideo || compact);
-
-  useEffect(() => {
-    if (!isVideo || compact) return;
-    setFrameReady(false);
-  }, [item.id, isVideo, compact]);
+  /** 网格只允许 COS 缩略 / 视频封面，禁止原图与整段视频 */
+  const thumbSrc = item.thumbUrl || null;
 
   function handleClick() {
     if (selectMode) onToggleSelect();
@@ -52,53 +81,10 @@ function GridCell({
       aria-label={item.filename}
       aria-pressed={selectMode ? selected : undefined}
     >
-      {isVideo && !compact ? (
-        <>
-          <video
-            ref={videoRef}
-            src={item.url}
-            className={cn(
-              'absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-200',
-              frameReady ? 'opacity-100' : 'opacity-0'
-            )}
-            muted
-            playsInline
-            preload="metadata"
-            controls={false}
-            onLoadedMetadata={() => {
-              const v = videoRef.current;
-              if (!v) return;
-              try {
-                if (v.currentTime < 0.05) v.currentTime = 0.1;
-              } catch {
-                /* ignore */
-              }
-            }}
-            onSeeked={() => setFrameReady(true)}
-            onLoadedData={() => setFrameReady(true)}
-          />
-          {!frameReady && <div className="absolute inset-0 bg-[#E5E5EA] animate-pulse" />}
-        </>
-      ) : isVideo && compact ? (
-        <div className="absolute inset-0 bg-[#D1D1D6] flex items-center justify-center">
-          <Play className="w-[40%] h-[40%] text-white/90 drop-shadow" fill="currentColor" strokeWidth={0} />
-        </div>
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 w-full h-full object-cover"
-          draggable={false}
-        />
-      )}
+      <GridThumb src={thumbSrc} compactVideo={isVideo && (compact || !thumbSrc)} />
 
-      {isVideo && !compact && item.duration != null && (
-        <span
-          className={cn('photos-duration', tinyDuration && 'photos-duration-tiny')}
-        >
+      {isVideo && item.duration != null && !compact && (
+        <span className={cn('photos-duration', tinyDuration && 'photos-duration-tiny')}>
           {formatDuration(item.duration)}
         </span>
       )}
@@ -203,10 +189,7 @@ export function GalleryGrid({
             </h2>
           )}
           {showOverlayHeaders && !showInlineHeaders && (
-            <div
-              className="photos-section-overlay"
-              aria-hidden
-            >
+            <div className="photos-section-overlay" aria-hidden>
               {section.label}
             </div>
           )}

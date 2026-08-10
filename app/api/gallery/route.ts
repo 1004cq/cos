@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSignedUrl } from '@/lib/cos';
+import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
 import { mapWithConcurrency } from '@/lib/utils';
 
 /**
@@ -55,18 +55,26 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // 并发限制，避免一次打爆签名
-    const signed = await mapWithConcurrency(items, 8, async (m) => {
+    // 并发上限 6；每条内串行签名，避免一次打爆 COS
+    const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
 
       const isImage = m.mimeType.startsWith('image/');
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        const [url, thumbUrl] = await Promise.all([
-          getSignedUrl(m.key, 1800),
-          isImage ? getSignedUrl(m.key, 1800, { thumb: true }) : Promise.resolve(null),
-        ]);
+        const url = await getSignedUrl(m.key, 1800);
+        let thumbUrl: string | null = null;
+        if (isImage) {
+          thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
+        } else if (isVideo) {
+          try {
+            thumbUrl = await getSignedUrl(m.key, 1800, { snapshot: true });
+          } catch (err) {
+            console.warn('gallery video snapshot failed:', m.key, err);
+            thumbUrl = null;
+          }
+        }
 
         return {
           id: m.id,
@@ -81,7 +89,7 @@ export async function GET(req: NextRequest) {
           takenAt: m.takenAt,
           createdAt: m.createdAt,
           url,
-          thumbUrl: thumbUrl || url,
+          thumbUrl,
           kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as 'image' | 'video' | 'other',
         };
       } catch (err) {

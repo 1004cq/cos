@@ -351,6 +351,14 @@ body::before {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.photos-video-seek:disabled {
+  pointer-events: none;
+}
+
+.photos-filmstrip-thumb {
+  background: #e5e5ea;
+}
+
 .photos-viewer {
   animation: photos-fade-in 0.2s ease-out;
 }
