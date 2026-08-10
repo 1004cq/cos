@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { fetchSignedUrl } from '@/lib/sign-client';
 import { mediaDisplayTitle } from '@/lib/utils';
 
@@ -32,6 +33,7 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
   const current = items[index];
   const isVideo = current?.mimeType?.startsWith('video/');
   const [displayUrl, setDisplayUrl] = useState(current?.url || '');
+  const [imgStatus, setImgStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [playing, setPlaying] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const didSwipe = useRef(false);
@@ -59,17 +61,21 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
     };
   }, [onClose, prev, next]);
 
-  // 列表可能是缩略图：灯箱按需换原图
+  // 列表可能是缩略图：灯箱按需换原图（画质策略不变）
   useEffect(() => {
     if (!current) return;
-    setDisplayUrl(current.url);
+    const initial = current.url || '';
+    setDisplayUrl(initial);
+    setImgStatus(initial ? 'loading' : 'error');
     setPlaying(false);
 
     if (!current.key || isVideo) return;
 
     let cancelled = false;
     void fetchSignedUrl(current.key).then((url) => {
-      if (!cancelled && url) setDisplayUrl(url);
+      if (cancelled || !url) return;
+      setDisplayUrl(url);
+      setImgStatus('loading');
     });
 
     return () => {
@@ -77,13 +83,9 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
     };
   }, [current, isVideo]);
 
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !isVideo) return;
-    void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-  }, [current?.id, isVideo]);
-
   if (!current) return null;
+
+  const title = mediaDisplayTitle(current.title, current.filename);
 
   function onTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.changedTouches[0]?.clientX ?? null;
@@ -124,30 +126,37 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-md no-save"
+      className="fixed inset-0 z-50 flex flex-col bg-black/45 backdrop-blur-md no-save"
       onClick={onClose}
       onContextMenu={blockSave}
       onDragStart={blockSave}
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
     >
       <div
-        className="flex items-center justify-between px-4 py-3 text-sm glass-header text-[var(--text)]"
+        className="flex items-center justify-between gap-3 px-3 sm:px-4 py-3 text-sm glass-header text-[var(--text)] shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="truncate max-w-[50%] font-medium">
-          {mediaDisplayTitle(current.title, current.filename)}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-[var(--text-muted)] text-xs">
+        <span className="truncate min-w-0 flex-1 font-medium text-[15px]">{title}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[var(--text-muted)] text-xs tabular-nums">
             {index + 1} / {items.length}
           </span>
-          <button onClick={onClose} className="btn-ghost !py-1.5 !px-3 text-sm">
-            关闭
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost !min-h-[44px] !min-w-[44px] !p-0 rounded-full"
+            aria-label="关闭"
+          >
+            <X className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       <div
-        className="flex-1 flex items-center justify-center relative px-2 pb-4 touch-pan-y"
+        className="flex-1 flex items-center justify-center relative px-2 sm:px-4 pb-4 min-h-0 touch-pan-y"
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
@@ -156,66 +165,100 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
       >
         {index > 0 && (
           <button
+            type="button"
             onClick={prev}
-            className="absolute left-2 md:left-6 z-10 w-11 h-11 rounded-full glass-strong flex items-center justify-center text-xl"
+            className="absolute left-1 sm:left-3 z-20 min-w-[44px] min-h-[44px] w-12 h-12 rounded-full glass-strong flex items-center justify-center shadow-lg"
             aria-label="上一张"
           >
-            ‹
+            <ChevronLeft className="w-6 h-6" />
           </button>
         )}
 
         {isVideo ? (
-          <div className="relative max-h-[calc(100vh-100px)] max-w-full w-full flex items-center justify-center">
-            {/* 无原生 controls，避免系统「下载/保存视频」入口；全画质签名 URL 不变 */}
+          <div className="relative w-full max-w-4xl min-h-[40vh] max-h-[calc(100dvh-7.5rem)] flex items-center justify-center">
             <video
               ref={videoRef}
               key={current.id}
               src={current.url}
-              controls={false}
+              controls
               controlsList="nodownload noplaybackrate noremoteplayback"
               disablePictureInPicture
               playsInline
               preload="metadata"
-              className="max-h-[calc(100vh-100px)] max-w-full rounded-2xl shadow-2xl"
+              className="max-h-[calc(100dvh-7.5rem)] max-w-full w-auto rounded-2xl shadow-2xl bg-black/20"
               onContextMenu={blockSave}
               onDragStart={blockSave}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onEnded={() => setPlaying(false)}
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                // 促发首帧，避免灰块
+                if (v.currentTime < 0.05) {
+                  try {
+                    v.currentTime = 0.05;
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              }}
             />
-            <button
-              type="button"
-              className="absolute inset-0 z-[1] flex items-center justify-center rounded-2xl"
-              aria-label={playing ? '暂停' : '播放'}
-              onClick={togglePlay}
-              onContextMenu={blockSave}
-            >
-              {!playing && (
-                <span className="w-14 h-14 rounded-full glass-strong flex items-center justify-center text-xl pointer-events-none">
+            {!playing && (
+              <button
+                type="button"
+                className="absolute inset-0 z-[1] flex items-center justify-center rounded-2xl"
+                aria-label="播放"
+                onClick={togglePlay}
+              >
+                <span className="w-16 h-16 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-2xl shadow-lg pointer-events-none">
                   ▶
                 </span>
-              )}
-            </button>
+              </button>
+            )}
           </div>
         ) : (
-          <div
-            key={`${current.id}-${displayUrl}`}
-            role="img"
-            aria-label={current.filename}
-            className="max-h-[calc(100vh-100px)] w-full max-w-full min-h-[40vh] rounded-2xl shadow-2xl bg-contain bg-center bg-no-repeat"
-            style={{ backgroundImage: `url(${JSON.stringify(displayUrl)})` }}
-            onContextMenu={blockSave}
-            onDragStart={blockSave}
-          />
+          <div className="relative w-full max-w-5xl min-h-[50vh] max-h-[calc(100dvh-7.5rem)] flex items-center justify-center rounded-2xl overflow-hidden">
+            {imgStatus === 'loading' && (
+              <div
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 glass rounded-2xl min-h-[50vh]"
+                aria-busy
+              >
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  加载中…
+                </span>
+              </div>
+            )}
+            {imgStatus === 'error' && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center glass rounded-2xl min-h-[50vh]">
+                <p className="text-sm text-red-500">加载失败</p>
+              </div>
+            )}
+            {displayUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={`${current.id}-${displayUrl}`}
+                src={displayUrl}
+                alt={title}
+                className="max-h-[calc(100dvh-7.5rem)] max-w-full w-auto h-auto object-contain rounded-2xl shadow-2xl select-none no-save"
+                draggable={false}
+                onLoad={() => setImgStatus('ready')}
+                onError={() => setImgStatus('error')}
+                onContextMenu={blockSave}
+                onDragStart={blockSave}
+              />
+            ) : null}
+          </div>
         )}
 
         {index < items.length - 1 && (
           <button
+            type="button"
             onClick={next}
-            className="absolute right-2 md:right-6 z-10 w-11 h-11 rounded-full glass-strong flex items-center justify-center text-xl"
+            className="absolute right-1 sm:right-3 z-20 min-w-[44px] min-h-[44px] w-12 h-12 rounded-full glass-strong flex items-center justify-center shadow-lg"
             aria-label="下一张"
           >
-            ›
+            <ChevronRight className="w-6 h-6" />
           </button>
         )}
       </div>

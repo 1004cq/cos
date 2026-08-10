@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Lightbox, type LightboxItem } from '@/components/lightbox';
 import Link from 'next/link';
@@ -16,6 +16,76 @@ type GalleryItem = LightboxItem & {
 };
 
 type TabId = 'all' | 'image' | 'video';
+
+/** 首页视频卡片：用 metadata / 首帧预览，避免纯灰块 */
+function VideoCardPreview({
+  src,
+  poster,
+  label,
+}: {
+  src: string;
+  poster?: string;
+  label: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setReady(false);
+    setFailed(false);
+  }, [src]);
+
+  function captureFrame() {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      if (v.readyState >= 1 && v.currentTime < 0.05) {
+        v.currentTime = 0.1;
+      }
+    } catch {
+      /* seek 可能被打断，忽略 */
+    }
+  }
+
+  return (
+    <div className="relative aspect-video bg-gradient-to-br from-slate-100/80 to-slate-200/60 overflow-hidden">
+      {!failed && (
+        <video
+          ref={videoRef}
+          src={src}
+          poster={poster || undefined}
+          className={cn(
+            'absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300',
+            ready || poster ? 'opacity-100' : 'opacity-0'
+          )}
+          muted
+          playsInline
+          preload="metadata"
+          controls={false}
+          controlsList="nodownload noplaybackrate"
+          disablePictureInPicture
+          onLoadedMetadata={() => {
+            captureFrame();
+          }}
+          onLoadedData={() => setReady(true)}
+          onSeeked={() => setReady(true)}
+          onError={() => setFailed(true)}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-label={label}
+        />
+      )}
+      {!ready && !poster && !failed && (
+        <div className="absolute inset-0 animate-pulse bg-white/50" aria-hidden />
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/15 group-hover:bg-black/25 transition">
+        <span className="w-14 h-14 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-xl shadow-md pointer-events-none">
+          ▶
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const { status } = useSession();
@@ -127,14 +197,14 @@ export default function HomePage() {
         <p className="text-center px-4 py-4 text-sm text-red-500">{error}</p>
       )}
 
-      <main className="flex-1 px-2 sm:px-3 md:px-4 pt-4 sm:pt-6 pb-[max(3rem,calc(1.5rem+env(safe-area-inset-bottom)))]">
+      <main className="flex-1 px-3 sm:px-4 pt-4 sm:pt-6 pb-[max(3rem,calc(1.5rem+env(safe-area-inset-bottom)))]">
         {loading ? (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 md:gap-3">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div
                   key={i}
-                  className="media-tile animate-pulse bg-white/40"
+                  className="media-tile animate-pulse"
                   aria-hidden
                 />
               ))}
@@ -147,8 +217,8 @@ export default function HomePage() {
           <div className="space-y-8 sm:space-y-10 md:space-y-12">
             {(tab === 'all' || tab === 'image') && (
               <section>
-                <div className="flex items-end justify-between px-1 mb-2 sm:mb-3">
-                  <h2 className="text-base font-semibold">图片</h2>
+                <div className="flex items-end justify-between px-0.5 mb-3">
+                  <h2 className="text-base sm:text-lg font-semibold tracking-tight">图片</h2>
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {images.length} 张
                   </span>
@@ -161,24 +231,28 @@ export default function HomePage() {
                     暂无图片{isAdmin ? '，去后台上传吧' : ''}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 md:gap-3">
                     {images.map((item) => {
                       const src = item.thumbUrl || item.url;
+                      const label = mediaDisplayTitle(item.title, item.filename);
                       return (
                         <button
                           key={item.id}
                           type="button"
-                          className="media-tile no-save"
+                          className="media-tile no-save shadow-sm"
                           onClick={() => openItem(item)}
                           onContextMenu={(e) => e.preventDefault()}
                           onDragStart={(e) => e.preventDefault()}
-                          aria-label={item.filename}
+                          aria-label={label}
                         >
-                          {/* background-image：Safari/微信长按更难出「保存图片」 */}
-                          <div
-                            className="media-cover"
-                            style={{ backgroundImage: `url(${JSON.stringify(src)})` }}
-                            aria-hidden
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={src}
+                            alt={label}
+                            loading="lazy"
+                            decoding="async"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            draggable={false}
                           />
                         </button>
                       );
@@ -190,8 +264,8 @@ export default function HomePage() {
 
             {(tab === 'all' || tab === 'video') && (
               <section>
-                <div className="flex items-end justify-between px-1 mb-2 sm:mb-3">
-                  <h2 className="text-base font-semibold">视频</h2>
+                <div className="flex items-end justify-between px-0.5 mb-3">
+                  <h2 className="text-base sm:text-lg font-semibold tracking-tight">视频</h2>
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {videos.length} 个
                   </span>
@@ -204,40 +278,21 @@ export default function HomePage() {
                     暂无视频{isAdmin ? '，去后台上传吧' : ''}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {videos.map((item) => {
                       const label = mediaDisplayTitle(item.title, item.filename);
                       return (
                         <button
                           key={item.id}
                           type="button"
-                          className="glass rounded-2xl overflow-hidden text-left group min-h-[44px] no-save"
+                          className="glass rounded-2xl overflow-hidden text-left group min-h-[44px] no-save shadow-sm hover:shadow-md transition-shadow"
                           onClick={() => openItem(item)}
                           onContextMenu={(e) => e.preventDefault()}
                           onDragStart={(e) => e.preventDefault()}
                           aria-label={`播放 ${label}`}
                         >
-                          <div className="relative aspect-video bg-black/5">
-                            {/* 预览仍走全画质签名 URL，但 pointer-events 关闭 + 遮罩，降低长按保存 */}
-                            <video
-                              src={item.url}
-                              className="w-full h-full object-cover pointer-events-none"
-                              muted
-                              playsInline
-                              preload="metadata"
-                              controls={false}
-                              controlsList="nodownload noplaybackrate"
-                              disablePictureInPicture
-                              disableRemotePlayback
-                              onContextMenu={(e) => e.preventDefault()}
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/20 transition">
-                              <span className="w-12 h-12 min-w-[44px] min-h-[44px] rounded-full glass-strong flex items-center justify-center text-lg pointer-events-none">
-                                ▶
-                              </span>
-                            </div>
-                          </div>
-                          <div className="px-3 py-2.5">
+                          <VideoCardPreview src={item.url} label={label} />
+                          <div className="px-3.5 py-3 border-t border-white/50 bg-white/35">
                             <p className="text-sm font-medium truncate">{label}</p>
                           </div>
                         </button>
