@@ -38,7 +38,6 @@ export function encryptSecret(plain: string): string {
 export function decryptSecret(payload: string): string {
   const [ivB64, tagB64, dataB64] = payload.split(':');
   if (!ivB64 || !tagB64 || !dataB64) {
-    // 兼容未加密的旧值
     return payload;
   }
   const decipher = createDecipheriv('aes-256-gcm', deriveKey(), Buffer.from(ivB64, 'base64'));
@@ -55,6 +54,32 @@ function maskSecret(value: string): string {
   return `${value.slice(0, 4)}****${value.slice(-4)}`;
 }
 
+/** 去掉协议与路径，只保留 host */
+export function normalizeCdnHost(input: string): string {
+  const raw = input.trim();
+  if (!raw) return '';
+  try {
+    const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withProto).host;
+  } catch {
+    return raw.replace(/^https?:\/\//i, '').split('/')[0].trim();
+  }
+}
+
+/** 中文/IDN 网站域名不能当 COS CDN，否则签名 host 错误导致 404 */
+export function isUnsafeCdnHost(host: string): boolean {
+  if (!host) return false;
+  // 含非 ASCII（中文域名等）
+  if (/[^\x00-\x7F]/.test(host)) return true;
+  // 常见把「网站域名」误填成 CDN
+  const lower = host.toLowerCase();
+  if (lower.includes('xn--')) {
+    // punycode 中文域：允许用户自担风险，但「我爱你」相关仍提示不安全
+    // 这里不一律拒绝 punycode，由调用方决定
+  }
+  return false;
+}
+
 async function getSettingRaw(key: string): Promise<string | null> {
   try {
     const row = await prisma.systemSetting.findUnique({ where: { key } });
@@ -65,7 +90,8 @@ async function getSettingRaw(key: string): Promise<string | null> {
 }
 
 /**
- * 读取运行时 COS 配置：数据库有值则覆盖 env
+ * 读取运行时 COS 配置：数据库有记录则用数据库（含空字符串=故意清空），
+ * 仅当数据库无此 key 时才回退 env。
  */
 export async function getCosConfig(): Promise<CosRuntimeConfig> {
   const [dbId, dbKey, dbBucket, dbRegion, dbCdn, dbThumb] = await Promise.all([
@@ -84,9 +110,20 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
     : process.env.COS_SECRET_KEY || '';
   const bucket = dbBucket ? (fromDb++, dbBucket) : process.env.COS_BUCKET || '';
   const region = dbRegion ? (fromDb++, dbRegion) : process.env.COS_REGION || '';
-  const cdnDomain = dbCdn != null && dbCdn !== ''
-    ? (fromDb++, dbCdn)
-    : process.env.COS_CDN_DOMAIN || '';
+
+  // 关键：dbCdn === null 才用 env；dbCdn === '' 表示用户已清空，不要回填 env
+  let cdnDomain = '';
+  if (dbCdn !== null) {
+    fromDb++;
+    cdnDomain = normalizeCdnHost(dbCdn);
+  } else {
+    cdnDomain = normalizeCdnHost(process.env.COS_CDN_DOMAIN || '');
+  }
+  // 运行时忽略不安全的中文 CDN，避免播放/上传 host 错乱
+  if (isUnsafeCdnHost(cdnDomain)) {
+    cdnDomain = '';
+  }
+
   const thumbWidth = Math.min(
     1200,
     Math.max(
@@ -94,7 +131,7 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
       parseInt(dbThumb || process.env.COS_THUMB_WIDTH || '480', 10) || 480
     )
   );
-  if (dbThumb) fromDb++;
+  if (dbThumb !== null) fromDb++;
 
   const source: CosRuntimeConfig['source'] =
     fromDb === 0 ? 'env' : fromDb >= 4 ? 'database' : 'mixed';
@@ -113,26 +150,35 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
 /** 给前端的脱敏配置（不返回明文 SecretKey） */
 export async function getCosConfigPublic() {
   const c = await getCosConfig();
+  // 展示用：数据库原文（可能含用户误填的中文，便于在表单里看到并清掉）
+  const dbCdn = await getSettingRaw('cos.cdnDomain');
+  const displayCdn =
+    dbCdn !== null
+      ? normalizeCdnHost(dbCdn)
+      : normalizeCdnHost(process.env.COS_CDN_DOMAIN || '');
+
   return {
     secretId: c.secretId ? maskSecret(c.secretId) : '',
     secretIdSet: Boolean(c.secretId),
     secretKeySet: Boolean(c.secretKey),
     bucket: c.bucket,
     region: c.region,
-    cdnDomain: c.cdnDomain,
+    cdnDomain: displayCdn,
+    /** 实际签名使用的 CDN（中文域会被忽略） */
+    cdnDomainEffective: c.cdnDomain,
+    cdnIgnoredUnsafe: Boolean(displayCdn && !c.cdnDomain),
     thumbWidth: c.thumbWidth,
     source: c.source,
-    /** 是否已具备最小可用配置 */
     ready: Boolean(c.secretId && c.secretKey && c.bucket && c.region),
   };
 }
 
 export type CosConfigInput = {
   secretId?: string;
-  /** 传空或不传表示不修改已有密钥 */
   secretKey?: string;
   bucket?: string;
   region?: string;
+  /** 传空字符串表示清空 CDN */
   cdnDomain?: string;
   thumbWidth?: number;
 };
@@ -147,13 +193,11 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   };
 
   if (input.secretId !== undefined && input.secretId.trim()) {
-    // 含 **** 的脱敏串视为未修改
     if (!input.secretId.includes('****')) {
       await upsert('cos.secretId', input.secretId.trim(), true);
     }
   }
   if (input.secretKey !== undefined && input.secretKey.trim()) {
-    // 含 **** 的脱敏串视为未修改
     if (!input.secretKey.includes('****')) {
       await upsert('cos.secretKey', encryptSecret(input.secretKey.trim()), true);
     }
@@ -165,7 +209,9 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
     await upsert('cos.region', input.region.trim(), false);
   }
   if (input.cdnDomain !== undefined) {
-    await upsert('cos.cdnDomain', input.cdnDomain.trim(), false);
+    // 允许空字符串：写入 DB，表示明确不使用 CDN，不再回退 env
+    const host = normalizeCdnHost(input.cdnDomain);
+    await upsert('cos.cdnDomain', host, false);
   }
   if (input.thumbWidth !== undefined) {
     await upsert('cos.thumbWidth', String(input.thumbWidth), false);
