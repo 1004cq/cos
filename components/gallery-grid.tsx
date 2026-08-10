@@ -9,13 +9,17 @@ import type { GalleryItem } from '@/components/gallery-types';
 
 function GridThumb({
   src,
-  compactVideo,
+  isVideo,
 }: {
   src?: string | null;
-  compactVideo?: boolean;
+  isVideo?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   const showImg = Boolean(src) && !failed;
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
 
   if (showImg) {
     return (
@@ -25,22 +29,22 @@ function GridThumb({
         alt=""
         loading="lazy"
         decoding="async"
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-cover bg-[#E5E5EA]"
         draggable={false}
         onError={() => setFailed(true)}
       />
     );
   }
 
-  if (compactVideo) {
+  if (isVideo) {
     return (
-      <div className="absolute inset-0 bg-[#D1D1D6] flex items-center justify-center">
-        <Play className="w-[40%] h-[40%] text-white/90 drop-shadow" fill="currentColor" strokeWidth={0} />
+      <div className="absolute inset-0 bg-[#E5E5EA] flex items-center justify-center">
+        <Play className="w-[36%] h-[36%] text-[#8E8E93]" fill="currentColor" strokeWidth={0} />
       </div>
     );
   }
 
-  return <div className="absolute inset-0 bg-[#E5E5EA]" />;
+  return <div className="absolute inset-0 bg-[#E5E5EA]" aria-hidden />;
 }
 
 function GridCell({
@@ -81,7 +85,7 @@ function GridCell({
       aria-label={item.filename}
       aria-pressed={selectMode ? selected : undefined}
     >
-      <GridThumb src={thumbSrc} compactVideo={isVideo && (compact || !thumbSrc)} />
+      <GridThumb src={thumbSrc} isVideo={isVideo} />
 
       {isVideo && item.duration != null && !compact && (
         <span className={cn('photos-duration', tinyDuration && 'photos-duration-tiny')}>

@@ -66,12 +66,8 @@ function getObjectUrlWithClient(
       },
       (err, data) => {
         if (err) return reject(err);
-        let url = data.Url;
-        // 关键：只有 GET 才允许换成 CDN；PUT 必须打 COS 源站
-        if (method === 'GET' && cfg.cdnDomain) {
-          url = applyCdnHost(url, cfg.cdnDomain);
-        }
-        resolve(url);
+        // 签名始终返回 COS 源站 URL；CDN 保持空，避免错 host 导致灰块/404
+        resolve(data.Url);
       }
     );
   });
@@ -148,7 +144,8 @@ export async function getSignedUrl(
     query['format'] = 'jpg';
   } else if (options?.thumb) {
     const w = options.thumbWidth ?? cfg.thumbWidth;
-    query[`imageMogr2/thumbnail/${w}x${w}>/format/webp`] = '';
+    // jpg 比 webp 兼容更好，避免部分环境缩略失败成灰块
+    query[`imageMogr2/thumbnail/${w}x${w}>/format/jpg`] = '';
   }
 
   const client = createClient(cfg);

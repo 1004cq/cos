@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, X } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, Play, X } from 'lucide-react';
 import { mediaDisplayTitle } from '@/lib/utils';
 import { formatWeekday, formatTimeOfDay, itemSortDate } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
@@ -23,11 +23,21 @@ export type LightboxItem = {
   duration?: number | null;
 };
 
-function FilmstripThumb({ src }: { src?: string | null }) {
+function FilmstripThumb({ src, isVideo }: { src?: string | null; isVideo?: boolean }) {
   const [failed, setFailed] = useState(!src);
 
+  useEffect(() => {
+    setFailed(!src);
+  }, [src]);
+
   if (!src || failed) {
-    return <div className="w-full h-full bg-[#E5E5EA]" aria-hidden />;
+    return (
+      <div className="w-full h-full bg-[#E5E5EA] flex items-center justify-center" aria-hidden>
+        {isVideo ? (
+          <Play className="w-4 h-4 text-[#8E8E93]" fill="currentColor" strokeWidth={0} />
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -68,8 +78,11 @@ export function Lightbox({
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [imageScale, setImageScale] = useState(1);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [videoPlaying, setVideoPlaying] = useState(false);
   const filmstripRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hideTimerRef = useRef<number | null>(null);
 
   const prev = useCallback(() => {
     if (index > 0) onChange(index - 1);
@@ -78,6 +91,22 @@ export function Lightbox({
   const next = useCallback(() => {
     if (index < items.length - 1) onChange(index + 1);
   }, [index, items.length, onChange]);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleAutoHide = useCallback(() => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => {
+      setChromeVisible(false);
+      setMenuOpen(false);
+      setInfoOpen(false);
+    }, 2800);
+  }, [clearHideTimer]);
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setEntered(true));
@@ -104,7 +133,19 @@ export function Lightbox({
     setInfoOpen(false);
     setMenuOpen(false);
     setImageScale(1);
-  }, [index]);
+    setChromeVisible(true);
+    setVideoPlaying(false);
+    clearHideTimer();
+  }, [index, clearHideTimer]);
+
+  useEffect(() => {
+    if (videoPlaying && chromeVisible) {
+      scheduleAutoHide();
+    } else {
+      clearHideTimer();
+    }
+    return clearHideTimer;
+  }, [videoPlaying, chromeVisible, scheduleAutoHide, clearHideTimer]);
 
   useEffect(() => {
     const strip = filmstripRef.current;
@@ -125,6 +166,19 @@ export function Lightbox({
   const title = mediaDisplayTitle(current.title, current.filename);
   const isVideo = current.mimeType.startsWith('video/');
 
+  function toggleChrome() {
+    setChromeVisible((v) => {
+      const nextVisible = !v;
+      if (nextVisible) {
+        setMenuOpen(false);
+      } else {
+        setMenuOpen(false);
+        setInfoOpen(false);
+      }
+      return nextVisible;
+    });
+  }
+
   async function handleShare() {
     const url = current.url;
     if (navigator.share) {
@@ -144,7 +198,7 @@ export function Lightbox({
 
   if (!isIos) {
     return (
-      <div className="photos-viewer-fs fixed inset-0 z-[200] flex bg-black/45 backdrop-blur-md">
+      <div className="photos-viewer-fs fixed inset-0 z-50 flex bg-black/45 backdrop-blur-md">
         <PhotoViewerCarousel
           items={items}
           index={index}
@@ -166,14 +220,14 @@ export function Lightbox({
   return (
     <div
       className={cn(
-        'photos-viewer-fs photos-viewer-ios fixed inset-0 z-[200] bg-[#FFFFFF]',
+        'photos-viewer-fs photos-viewer-ios fixed inset-0 z-50 bg-black',
         entered ? 'photos-viewer-enter' : 'opacity-0'
       )}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
-      {/* 媒体层：占满全屏，不被顶栏/底栏挤压 */}
+      {/* 媒体层：占满全屏 */}
       <div className="photos-viewer-media absolute inset-0 z-0">
         <PhotoViewerCarousel
           items={items}
@@ -183,13 +237,17 @@ export function Lightbox({
           onScaleChange={setImageScale}
           swipeEnabled={imageScale === 1}
           videoRef={videoRef}
+          onMediaTap={toggleChrome}
         />
       </div>
 
       {/* 顶栏浮层 */}
       <header
-        className="photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 px-2 py-1.5 min-h-[48px]"
-        style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}
+        className={cn(
+          'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 px-2 py-1.5 min-h-[48px] transition-opacity duration-250',
+          chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        )}
+        style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}
       >
         <button type="button" onClick={onClose} className="photos-icon-btn" aria-label="返回">
           <ChevronLeft className="w-6 h-6" strokeWidth={2.25} />
@@ -216,7 +274,7 @@ export function Lightbox({
         </button>
       </header>
 
-      {menuOpen && (
+      {menuOpen && chromeVisible && (
         <div
           className="absolute right-3 z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px]"
           style={{ top: 'calc(env(safe-area-inset-top) + 52px)' }}
@@ -246,7 +304,7 @@ export function Lightbox({
         </div>
       )}
 
-      {infoOpen && (
+      {infoOpen && chromeVisible && (
         <div
           className="absolute inset-x-4 z-30 px-4 py-3 rounded-2xl bg-[#F2F2F7]/95 text-sm shadow-sm"
           style={{ top: 'calc(env(safe-area-inset-top) + 56px)' }}
@@ -258,12 +316,24 @@ export function Lightbox({
         </div>
       )}
 
-      {/* 底栏浮层：视频控件 + filmstrip */}
+      {/* 底栏浮层：不占文档流，不挤压媒体 */}
       <div
-        className="photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col"
-        style={{ paddingBottom: 'max(6px, env(safe-area-inset-bottom))' }}
+        className={cn(
+          'photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col transition-opacity duration-250',
+          chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        )}
+        style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+        onPointerDown={() => {
+          if (videoPlaying) scheduleAutoHide();
+        }}
       >
-        {isVideo && <PhotoViewerVideoBar videoRef={videoRef} active />}
+        {isVideo && (
+          <PhotoViewerVideoBar
+            videoRef={videoRef}
+            active
+            onPlayingChange={setVideoPlaying}
+          />
+        )}
 
         {items.length > 1 && (
           <div
@@ -283,11 +353,11 @@ export function Lightbox({
                   className={cn(
                     'photos-filmstrip-thumb shrink-0 w-11 h-11 rounded-[6px] overflow-hidden border-2 transition-all duration-200 bg-[#E5E5EA]',
                     active
-                      ? 'border-[#007AFF] opacity-100 scale-105'
-                      : 'border-transparent opacity-50'
+                      ? 'border-white opacity-100 scale-105'
+                      : 'border-transparent opacity-55'
                   )}
                 >
-                  <FilmstripThumb src={thumb} />
+                  <FilmstripThumb src={thumb} isVideo={itemVideo} />
                 </button>
               );
             })}

@@ -54,7 +54,11 @@ async function buildShareItems(mediaList: MediaRow[]) {
     const url = await getSignedUrl(m.key, 900);
     let thumbUrl: string | null = null;
     if (isImage) {
-      thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
+      try {
+        thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
+      } catch {
+        thumbUrl = null;
+      }
     } else if (isVideo) {
       try {
         thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });

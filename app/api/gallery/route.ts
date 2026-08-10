@@ -66,7 +66,12 @@ export async function GET(req: NextRequest) {
         const url = await getSignedUrl(m.key, 1800);
         let thumbUrl: string | null = null;
         if (isImage) {
-          thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
+          try {
+            thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
+          } catch (err) {
+            console.warn('gallery image thumb failed:', m.key, err);
+            thumbUrl = null;
+          }
         } else if (isVideo) {
           try {
             thumbUrl = await getSignedUrl(m.key, 1800, { snapshot: true });

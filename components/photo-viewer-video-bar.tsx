@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils';
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   active: boolean;
+  onPlayingChange?: (playing: boolean) => void;
 };
 
 function safeDuration(raw: number): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }
 
-export function PhotoViewerVideoBar({ videoRef, active }: Props) {
+export function PhotoViewerVideoBar({ videoRef, active, onPlayingChange }: Props) {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -31,8 +32,9 @@ export function PhotoViewerVideoBar({ videoRef, active }: Props) {
       setCanSeek(false);
       seekingRef.current = false;
       pendingSeekRef.current = null;
+      onPlayingChange?.(false);
     }
-  }, [active]);
+  }, [active, onPlayingChange]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -50,8 +52,14 @@ export function PhotoViewerVideoBar({ videoRef, active }: Props) {
       if (seekingRef.current) return;
       setCurrent(v.currentTime || 0);
     };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
+    const onPlay = () => {
+      setPlaying(true);
+      onPlayingChange?.(true);
+    };
+    const onPause = () => {
+      setPlaying(false);
+      onPlayingChange?.(false);
+    };
     const onSeeking = () => {
       seekingRef.current = true;
     };
@@ -69,6 +77,8 @@ export function PhotoViewerVideoBar({ videoRef, active }: Props) {
     v.addEventListener('seeking', onSeeking);
     v.addEventListener('seeked', onSeeked);
     syncMeta();
+    setPlaying(!v.paused);
+    onPlayingChange?.(!v.paused);
 
     return () => {
       v.removeEventListener('timeupdate', onTime);
@@ -80,7 +90,7 @@ export function PhotoViewerVideoBar({ videoRef, active }: Props) {
       v.removeEventListener('seeking', onSeeking);
       v.removeEventListener('seeked', onSeeked);
     };
-  }, [videoRef, active]);
+  }, [videoRef, active, onPlayingChange]);
 
   function togglePlay() {
     const v = videoRef.current;

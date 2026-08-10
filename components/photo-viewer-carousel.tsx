@@ -28,6 +28,7 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
     thumbUrl ? 'ready' : fullUrl ? 'loading' : 'error'
   );
   const [showSpinner, setShowSpinner] = useState(!thumbUrl && Boolean(fullUrl));
+  const [posterFailed, setPosterFailed] = useState(false);
   const lastTapRef = useRef(0);
   const pinchStartScale = useRef(1);
 
@@ -123,12 +124,14 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
 
   if (isVideo) {
     return (
-      <div className="photos-viewer-slide relative w-full h-full bg-white">
+      <div
+        className="photos-viewer-slide relative w-full h-full bg-black"
+      >
         {active ? (
           <video
             ref={videoRef}
             src={fullUrl || undefined}
-            poster={thumbUrl || undefined}
+            poster={!posterFailed && thumbUrl ? thumbUrl : undefined}
             playsInline
             preload="metadata"
             controls={false}
@@ -137,16 +140,17 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
             className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
             onContextMenu={blockSave}
           />
-        ) : thumbUrl ? (
+        ) : thumbUrl && !posterFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbUrl}
             alt=""
-            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
+            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain bg-black"
             draggable={false}
+            onError={() => setPosterFailed(true)}
           />
         ) : (
-          <div className="absolute inset-0 bg-[#E5E5EA]" />
+          <div className="absolute inset-0 bg-[#1C1C1E]" />
         )}
       </div>
     );
@@ -157,7 +161,7 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   return (
     <div
       {...(active ? bindPinch() : {})}
-      className="photos-viewer-slide relative w-full h-full bg-white touch-none select-none"
+      className="photos-viewer-slide relative w-full h-full bg-black touch-none select-none"
       onDoubleClick={onDoubleClick}
       onTouchEnd={onTouchEndZoom}
       onContextMenu={blockSave}
@@ -168,12 +172,13 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
         </div>
       )}
       {status === 'error' && active && !displayUrl && (
-        <p className="absolute inset-0 flex items-center justify-center text-sm text-red-500 pointer-events-none">
-          加载失败
-        </p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#1C1C1E]">
+          <div className="w-24 h-24 rounded-2xl bg-[#2C2C2E]" />
+          <p className="text-sm text-red-400 pointer-events-none">加载失败</p>
+        </div>
       )}
       {status === 'error' && active && displayUrl && (
-        <p className="absolute bottom-[22%] left-0 right-0 text-center text-sm text-red-500 pointer-events-none z-[2]">
+        <p className="absolute bottom-[18%] left-0 right-0 text-center text-sm text-red-400 pointer-events-none z-[2]">
           加载失败
         </p>
       )}
@@ -198,9 +203,14 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
             }
           }}
           onError={() => {
-            if (displayUrl === thumbUrl && fullUrl && fullUrl !== thumbUrl) return;
+            if (displayUrl === thumbUrl && fullUrl && fullUrl !== thumbUrl) {
+              setDisplayUrl(fullUrl);
+              setStatus('loading');
+              return;
+            }
             setStatus('error');
             setShowSpinner(false);
+            if (displayUrl === thumbUrl) setDisplayUrl('');
           }}
           onContextMenu={blockSave}
         />
@@ -217,6 +227,7 @@ type CarouselProps = {
   onScaleChange: (scale: number) => void;
   swipeEnabled: boolean;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
+  onMediaTap?: () => void;
 };
 
 export function PhotoViewerCarousel({
@@ -227,19 +238,22 @@ export function PhotoViewerCarousel({
   onScaleChange,
   swipeEnabled,
   videoRef: videoRefProp,
+  onMediaTap,
 }: CarouselProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const internalVideoRef = useRef<HTMLVideoElement>(null);
   const videoRef = videoRefProp ?? internalVideoRef;
-  const [vw, setVw] = useState(0);
+  const [vw, setVw] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const touchRef = useRef({ x0: 0, y0: 0, axis: null as 'x' | 'y' | null });
+  const touchRef = useRef({ x0: 0, y0: 0, axis: null as 'x' | 'y' | null, moved: false });
 
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
-    const measure = () => setVw(el.clientWidth);
+    const measure = () => setVw(el.clientWidth || window.innerWidth);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -272,10 +286,10 @@ export function PhotoViewerCarousel({
   );
 
   function onTouchStart(e: React.TouchEvent) {
-    if (!swipeEnabled || imageScale !== 1) return;
     const t = e.touches[0];
     if (!t) return;
-    touchRef.current = { x0: t.clientX, y0: t.clientY, axis: null };
+    touchRef.current = { x0: t.clientX, y0: t.clientY, axis: null, moved: false };
+    if (!swipeEnabled || imageScale !== 1) return;
     setIsDragging(true);
   }
 
@@ -285,6 +299,7 @@ export function PhotoViewerCarousel({
     if (!t) return;
     const dx = t.clientX - touchRef.current.x0;
     const dy = t.clientY - touchRef.current.y0;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) touchRef.current.moved = true;
     if (!touchRef.current.axis) {
       if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) touchRef.current.axis = 'x';
       else if (Math.abs(dy) > 10) touchRef.current.axis = 'y';
@@ -299,6 +314,13 @@ export function PhotoViewerCarousel({
 
   function onTouchEnd() {
     setIsDragging(false);
+
+    const wasTap = !touchRef.current.moved && touchRef.current.axis == null;
+    if (wasTap) {
+      onMediaTap?.();
+      touchRef.current.axis = null;
+      return;
+    }
 
     if (!swipeEnabled || imageScale !== 1 || touchRef.current.axis !== 'x') {
       if (dragX !== 0) setDragX(0);
@@ -324,10 +346,14 @@ export function PhotoViewerCarousel({
   return (
     <div
       ref={viewportRef}
-      className="photos-viewer-carousel absolute inset-0 w-full h-full overflow-hidden bg-white touch-pan-y"
+      className="photos-viewer-carousel absolute inset-0 w-full h-full overflow-hidden bg-black touch-pan-y"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onClick={() => {
+        // desktop / mouse
+        if (!('ontouchstart' in window)) onMediaTap?.();
+      }}
     >
       {vw > 0 && (
         <div
