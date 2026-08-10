@@ -40,7 +40,7 @@ export function formatCosError(err: unknown): string {
   }
 
   if (lower.includes('invalidregion') || lower.includes('region')) {
-    return 'Region 可能不正确：常见如 ap-guangzhou、ap-shanghai、ap-beijing';
+    return 'Region 可能不正确：本站桶在香港请用 ap-hongkong；其它如 ap-guangzhou、ap-shanghai';
   }
 
   if (lower.includes('timeout') || lower.includes('enetunreach') || lower.includes('econnrefused')) {

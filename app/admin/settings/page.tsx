@@ -19,13 +19,13 @@ type CosPublicConfig = {
 type TestResult = { ok: boolean; error?: string; bucket?: string; region?: string };
 
 const REGION_OPTIONS = [
+  'ap-hongkong',
   'ap-guangzhou',
   'ap-shanghai',
   'ap-nanjing',
   'ap-beijing',
   'ap-chengdu',
   'ap-chongqing',
-  'ap-hongkong',
   'ap-singapore',
   'ap-tokyo',
   'na-siliconvalley',
@@ -51,7 +51,7 @@ export default function AdminSettingsPage() {
   const [secretId, setSecretId] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [bucket, setBucket] = useState('');
-  const [region, setRegion] = useState('ap-guangzhou');
+  const [region, setRegion] = useState('ap-hongkong');
   const [cdnDomain, setCdnDomain] = useState('');
   const [thumbWidth, setThumbWidth] = useState(480);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
