@@ -72,7 +72,7 @@ export default function AdminSettingsPage() {
         ready: Boolean(data.ready),
       });
       setBucket(data.bucket || '');
-      setRegion(data.region || 'ap-guangzhou');
+      setRegion(data.region || 'ap-hongkong');
       setCdnDomain(data.cdnDomain || '');
       setThumbWidth(Number(data.thumbWidth) || 480);
       // 密钥不回填明文；输入框保持空白
@@ -312,7 +312,7 @@ export default function AdminSettingsPage() {
             list="cos-region-list"
             value={region}
             onChange={(e) => setRegion(e.target.value)}
-            placeholder="ap-guangzhou"
+            placeholder="ap-hongkong"
             required
           />
           <datalist id="cos-region-list">
@@ -321,7 +321,7 @@ export default function AdminSettingsPage() {
             ))}
           </datalist>
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            常见：ap-guangzhou、ap-shanghai、ap-beijing、ap-chengdu
+            本站桶在香港：请填 ap-hongkong（其它如 ap-guangzhou、ap-shanghai）
           </p>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {REGION_OPTIONS.slice(0, 6).map((r) => (
