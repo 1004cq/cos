@@ -137,12 +137,19 @@ export default function HomePage() {
   );
 
   const headerLabel = useMemo(() => {
+    if (viewMode === 'year' || viewMode === 'month') {
+      return filteredItems.length ? `共 ${filteredItems.length} 项` : '';
+    }
     if (headerDateKey) {
       const sec = sections.find((s) => s.key === headerDateKey);
       if (sec) return sec.label;
     }
     return sections[0]?.label ?? '';
-  }, [headerDateKey, sections]);
+  }, [headerDateKey, sections, viewMode, filteredItems.length]);
+
+  useEffect(() => {
+    if (sections[0]?.key) setHeaderDateKey(sections[0].key);
+  }, [sections]);
 
   const onSectionVisible = useCallback((key: string) => {
     setHeaderDateKey(key);
