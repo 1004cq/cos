@@ -70,13 +70,21 @@ export default function AdminSettingsPage() {
   const [accountError, setAccountError] = useState('');
   const [accountSuccess, setAccountSuccess] = useState('');
 
+  const [defaultStorage, setDefaultStorage] = useState<'cos' | 'local'>('cos');
+  const [localRootHint, setLocalRootHint] = useState('');
+  const [localRootConfigured, setLocalRootConfigured] = useState(false);
+  const [storageBusy, setStorageBusy] = useState(false);
+  const [storageMsg, setStorageMsg] = useState('');
+  const [storageErr, setStorageErr] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [res, accRes] = await Promise.all([
+      const [res, accRes, storageRes] = await Promise.all([
         fetch('/api/admin/settings/cos'),
         fetch('/api/admin/account'),
+        fetch('/api/admin/settings/storage'),
       ]);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '读取配置失败');
@@ -103,12 +111,41 @@ export default function AdminSettingsPage() {
       } else {
         setAccountUsername(session?.user?.name || '');
       }
+
+      if (storageRes.ok) {
+        const st = await storageRes.json();
+        if (st.defaultStorage === 'local' || st.defaultStorage === 'cos') {
+          setDefaultStorage(st.defaultStorage);
+        }
+        setLocalRootConfigured(Boolean(st.localRootConfigured));
+        setLocalRootHint(st.localRootHint || '');
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '读取失败');
     } finally {
       setLoading(false);
     }
   }, [session?.user?.name]);
+
+  async function saveStorageDefault() {
+    setStorageBusy(true);
+    setStorageErr('');
+    setStorageMsg('');
+    try {
+      const res = await fetch('/api/admin/settings/storage', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultStorage }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '保存失败');
+      setStorageMsg('默认存储已保存（仅影响之后新上传）');
+    } catch (e: unknown) {
+      setStorageErr(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setStorageBusy(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -300,7 +337,7 @@ export default function AdminSettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            账号安全 · 腾讯云 COS
+            账号安全 · 存储 · 腾讯云 COS
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -404,6 +441,59 @@ export default function AdminSettingsPage() {
           保存账号
         </button>
       </form>
+
+      <div className="rounded-3xl glass p-6 space-y-5">
+        <h2 className="text-lg font-semibold">存储</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          切换默认值只影响之后新上传，不改历史媒体。库中可同时存在 local 与 cos。
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="defaultStorage"
+              className="mt-1"
+              checked={defaultStorage === 'cos'}
+              onChange={() => setDefaultStorage('cos')}
+            />
+            <span>
+              <span className="font-medium text-sm">腾讯云 COS</span>
+              <span className="block text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                私有桶预签名；CDN 域名请留空（中文域不可用）
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="defaultStorage"
+              className="mt-1"
+              checked={defaultStorage === 'local'}
+              onChange={() => setDefaultStorage('local')}
+            />
+            <span>
+              <span className="font-medium text-sm">本地磁盘</span>
+              <span className="block text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                文件在服务器 LOCAL_MEDIA_ROOT，走服务器带宽与磁盘
+              </span>
+            </span>
+          </label>
+        </div>
+        <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+          LOCAL_MEDIA_ROOT：{localRootConfigured ? '已配置' : '未配置（将用默认）'} · {localRootHint}
+        </p>
+        {storageErr && <p className="text-sm text-red-600">{storageErr}</p>}
+        {storageMsg && !storageErr && <p className="text-sm text-green-700">{storageMsg}</p>}
+        <button
+          type="button"
+          disabled={storageBusy}
+          onClick={() => void saveStorageDefault()}
+          className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {storageBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          保存默认存储
+        </button>
+      </div>
 
       {error && (
         <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">

@@ -5,6 +5,13 @@ import { prisma } from '@/lib/prisma';
 import { headObjectSize } from '@/lib/cos';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
+import { getStorageConfig } from '@/lib/settings';
+import {
+  assertSafeMediaKey,
+  isStorageBackend,
+  normalizeStorage,
+  statLocalMedia,
+} from '@/lib/storage';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,9 +27,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '缺少必要字段' }, { status: 400 });
     }
 
-    if (typeof key !== 'string' || !key.startsWith('media/')) {
-      return NextResponse.json({ error: '非法的对象键' }, { status: 400 });
+    let safeKey: string;
+    try {
+      safeKey = assertSafeMediaKey(key);
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : '非法的对象键' },
+        { status: 400 }
+      );
     }
+
+    const storageCfg = await getStorageConfig();
+    const storage = isStorageBackend(body.storage)
+      ? body.storage
+      : normalizeStorage(storageCfg.defaultStorage, 'cos');
 
     const mimeType = resolveUploadContentType(filename, body.mimeType);
     if (!isAllowedUploadMime(mimeType)) {
@@ -46,20 +64,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '无效的 size' }, { status: 400 });
     }
 
-    // 以 COS 实际 Content-Length 为准核对是否原字节入库（不转码、不压缩）
-    let cosSize: number | null = null;
-    try {
-      cosSize = await headObjectSize(key);
-    } catch (err) {
-      console.warn('headObject size failed:', key, err);
+    let remoteSize: number | null = null;
+    if (storage === 'cos') {
+      try {
+        remoteSize = await headObjectSize(safeKey);
+      } catch (err) {
+        console.warn('headObject size failed:', safeKey, err);
+      }
+    } else {
+      remoteSize = await statLocalMedia(safeKey);
+      if (remoteSize == null) {
+        return NextResponse.json({ error: '本地文件不存在，请先上传' }, { status: 400 });
+      }
     }
 
-    const storedSize = cosSize != null ? cosSize : clientSize;
-    const sizeMismatch = cosSize != null && cosSize !== clientSize;
+    const storedSize = remoteSize != null ? remoteSize : clientSize;
+    const sizeMismatch = remoteSize != null && remoteSize !== clientSize;
 
     const media = await prisma.media.create({
       data: {
-        key,
+        storage,
+        key: safeKey,
         filename,
         title,
         mimeType,
@@ -76,7 +101,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ...media,
       clientSize,
-      cosSize,
+      cosSize: storage === 'cos' ? remoteSize : null,
+      localSize: storage === 'local' ? remoteSize : null,
       sizeMismatch,
     });
   } catch (error: unknown) {

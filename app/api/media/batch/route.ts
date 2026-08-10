@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { deleteObject } from '@/lib/cos';
+import { deleteLocalMediaFile, normalizeStorage } from '@/lib/storage';
 
 /**
  * 批量媒体操作
@@ -10,7 +11,8 @@ import { deleteObject } from '@/lib/cos';
  *   action: 'move' | 'delete'
  *   ids: string[]
  *   albumId?: string | null   (move)
- *   deleteFromCos?: boolean   (delete)
+ *   deleteFromCos?: boolean   (delete，兼容旧字段)
+ *   deleteFile?: boolean      (delete，按 storage 删文件)
  */
 export async function POST(req: NextRequest) {
   try {
@@ -20,7 +22,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { action, ids, albumId, deleteFromCos } = body;
+    const { action, ids, albumId, deleteFromCos, deleteFile } = body;
+    const shouldDeleteFile = Boolean(deleteFile ?? deleteFromCos);
 
     if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) {
       return NextResponse.json({ error: 'ids 无效' }, { status: 400 });
@@ -55,31 +58,36 @@ export async function POST(req: NextRequest) {
     if (action === 'delete') {
       const mediaList = await prisma.media.findMany({
         where: { id: { in: ids } },
-        select: { id: true, key: true },
+        select: { id: true, key: true, storage: true },
       });
 
       if (mediaList.length === 0) {
         return NextResponse.json({ error: '没有可删除的媒体' }, { status: 404 });
       }
 
-      const cosErrors: { id: string; key: string; error: string }[] = [];
+      const fileErrors: { id: string; key: string; storage: string; error: string }[] = [];
 
-      if (deleteFromCos) {
+      if (shouldDeleteFile) {
         for (const m of mediaList) {
+          const storage = normalizeStorage(m.storage, 'cos');
           try {
-            await deleteObject(m.key);
+            if (storage === 'cos') {
+              await deleteObject(m.key);
+            } else {
+              await deleteLocalMediaFile(m.key);
+            }
           } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'COS 删除失败';
-            cosErrors.push({ id: m.id, key: m.key, error: message });
+            const message = err instanceof Error ? err.message : '存储删除失败';
+            fileErrors.push({ id: m.id, key: m.key, storage, error: message });
           }
         }
 
-        // COS 有失败时：不删 DB，返回明确错误
-        if (cosErrors.length > 0) {
+        if (fileErrors.length > 0) {
           return NextResponse.json(
             {
-              error: `${cosErrors.length} 个 COS 对象删除失败，已中止数据库删除`,
-              cosErrors,
+              error: `${fileErrors.length} 个存储对象删除失败，已中止数据库删除`,
+              cosErrors: fileErrors,
+              fileErrors,
               deleted: 0,
             },
             { status: 502 }
@@ -94,7 +102,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         count: result.count,
-        cosDeleted: Boolean(deleteFromCos),
+        fileDeleted: shouldDeleteFile,
+        cosDeleted: shouldDeleteFile,
       });
     }
 

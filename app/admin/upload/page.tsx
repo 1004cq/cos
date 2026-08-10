@@ -40,7 +40,7 @@ function makeId() {
 }
 
 /**
- * 原文件字节直传 COS（预签名 PUT），成功后自动 POST /api/media 入库。
+ * 原文件字节上传：COS 预签名 PUT，或本地 /api/upload/local。
  * 禁止 canvas / ffmpeg / 前端重编码。
  */
 export default function UploadPage() {
@@ -50,11 +50,17 @@ export default function UploadPage() {
   const [albumId, setAlbumId] = useState('');
   const [albumsError, setAlbumsError] = useState('');
   const [largeHint, setLargeHint] = useState(false);
+  const [defaultStorage, setDefaultStorage] = useState<'cos' | 'local'>('cos');
+  const [uploadStorage, setUploadStorage] = useState<'default' | 'cos' | 'local'>('default');
 
   const itemsRef = useRef(items);
   const albumIdRef = useRef(albumId);
+  const uploadStorageRef = useRef(uploadStorage);
+  const defaultStorageRef = useRef(defaultStorage);
   itemsRef.current = items;
   albumIdRef.current = albumId;
+  uploadStorageRef.current = uploadStorage;
+  defaultStorageRef.current = defaultStorage;
 
   useEffect(() => {
     async function loadAlbums() {
@@ -69,11 +75,29 @@ export default function UploadPage() {
         setAlbumsError(e instanceof Error ? e.message : '加载相册失败');
       }
     }
+    async function loadStorage() {
+      try {
+        const res = await fetch('/api/admin/settings/storage');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.defaultStorage === 'local' || data.defaultStorage === 'cos') {
+          setDefaultStorage(data.defaultStorage);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     void loadAlbums();
+    void loadStorage();
   }, []);
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const resolvedStorage = useCallback((): 'cos' | 'local' => {
+    if (uploadStorageRef.current === 'default') return defaultStorageRef.current;
+    return uploadStorageRef.current;
   }, []);
 
   const uploadOne = useCallback(
@@ -92,8 +116,62 @@ export default function UploadPage() {
       const contentType =
         snapshot.contentType ||
         resolveUploadContentType(snapshot.file.name, snapshot.file.type);
+      const storage = resolvedStorage();
 
       try {
+        const latest = itemsRef.current.find((i) => i.id === queueId);
+        const title = (latest?.title ?? snapshot.title).trim();
+
+        if (storage === 'local') {
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const form = new FormData();
+            form.append('file', snapshot.file, snapshot.file.name);
+            if (title) form.append('title', title);
+            if (albumIdRef.current) form.append('albumId', albumIdRef.current);
+
+            xhr.open('POST', '/api/upload/local');
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const progress = Math.round((e.loaded / e.total) * 100);
+                updateItem(queueId, { progress, status: 'uploading' });
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const media = JSON.parse(xhr.responseText);
+                  updateItem(queueId, {
+                    progress: 100,
+                    status: 'success',
+                    key: media.key,
+                    mediaId: media.id,
+                    contentType: media.mimeType || contentType,
+                    storedSize: media.size,
+                    cosSize: null,
+                    sizeMismatch: Boolean(media.sizeMismatch),
+                  });
+                  resolve();
+                } catch (err) {
+                  reject(err instanceof Error ? err : new Error('解析响应失败'));
+                }
+              } else {
+                let msg = `上传失败: ${xhr.status}`;
+                try {
+                  const err = JSON.parse(xhr.responseText);
+                  if (err.error) msg = err.error;
+                } catch {
+                  /* ignore */
+                }
+                reject(new Error(msg));
+              }
+            };
+            xhr.onerror = () => reject(new Error('网络错误'));
+            xhr.send(form);
+          });
+          return;
+        }
+
         const presignRes = await fetch('/api/upload/presign', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -132,9 +210,6 @@ export default function UploadPage() {
           xhr.send(snapshot.file);
         });
 
-        // 入库前再读一次标题（用户可能在 pending 时改过）
-        const latest = itemsRef.current.find((i) => i.id === queueId);
-        const title = (latest?.title ?? snapshot.title).trim();
         const mediaRes = await fetch('/api/media', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -143,6 +218,7 @@ export default function UploadPage() {
             filename: snapshot.file.name,
             mimeType: putType,
             size: snapshot.file.size,
+            storage: 'cos',
             albumId: albumIdRef.current || null,
             ...(title ? { title } : {}),
           }),
@@ -171,7 +247,7 @@ export default function UploadPage() {
         });
       }
     },
-    [updateItem]
+    [updateItem, resolvedStorage]
   );
 
   const addFiles = useCallback((files: File[]) => {
@@ -274,7 +350,7 @@ export default function UploadPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">上传</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            预签名直传 COS · 成功后自动入库 · 无需再点确认
+            默认存储：{defaultStorage === 'local' ? '本地磁盘' : '腾讯云 COS'} · 成功后自动入库
           </p>
         </div>
         <div className="flex gap-2">
@@ -304,6 +380,27 @@ export default function UploadPage() {
           （当前为单次 PUT 无损直传；更大文件后续可加 multipart，仍按原字节上传。）
         </div>
       )}
+
+      <div className="rounded-2xl glass p-4 space-y-2">
+        <label className="block text-sm font-medium">本次上传存储</label>
+        <select
+          className="input-glass"
+          value={uploadStorage}
+          onChange={(e) =>
+            setUploadStorage(e.target.value as 'default' | 'cos' | 'local')
+          }
+          disabled={uploadingCount > 0}
+        >
+          <option value="default">
+            跟随默认（{defaultStorage === 'local' ? '本地' : 'COS'}）
+          </option>
+          <option value="cos">腾讯云 COS（预签名直传）</option>
+          <option value="local">本地磁盘（服务器 LOCAL_MEDIA_ROOT）</option>
+        </select>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          仅影响本页后续上传；不改历史媒体。默认值可在「设置 → 存储」修改。
+        </p>
+      </div>
 
       <div className="rounded-2xl glass p-4 space-y-2">
         <label className="block text-sm font-medium">归属相册（可选）</label>

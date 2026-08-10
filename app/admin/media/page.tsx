@@ -417,7 +417,7 @@ export default function AdminMediaPage() {
             checked={deleteCos}
             onChange={(e) => setDeleteCos(e.target.checked)}
           />
-          同时删 COS
+          同时删存储文件
         </label>
         <button
           type="button"

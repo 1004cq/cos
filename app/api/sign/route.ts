@@ -1,41 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getSignedUrl } from '@/lib/cos';
 import { prisma } from '@/lib/prisma';
+import { getMediaAccessUrls } from '@/lib/media-url';
 
 /**
- * 强制签名访问接口
- * 所有图片/视频展示必须走这里，禁止前端直接拼 COS 链接
- *
+ * 媒体访问 URL（需登录）
  * Query:
- *   key      - COS 对象键（必填）
- *   expires  - 有效期秒数，默认 1800（30分钟），最大 3600
- *   thumb    - 1/true 时返回数据万象缩略图（列表用）；灯箱请勿传
+ *   key | id  - 二选一
+ *   expires   - 默认 1800
+ *   thumb     - 1 时优先返回 thumbUrl（若有）
  */
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const key = searchParams.get('key');
+    const id = searchParams.get('id');
     const expiresParam = searchParams.get('expires');
     const thumbParam = searchParams.get('thumb');
 
-    if (!key) {
-      return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+    if (!key && !id) {
+      return NextResponse.json({ error: '缺少 key 或 id' }, { status: 400 });
     }
 
-    if (!key.startsWith('media/')) {
-      return NextResponse.json({ error: '非法的对象键' }, { status: 403 });
-    }
+    const media = id
+      ? await prisma.media.findUnique({ where: { id } })
+      : await prisma.media.findUnique({ where: { key: key! } });
 
-    const media = await prisma.media.findUnique({ where: { key } });
     if (!media) {
       return NextResponse.json({ error: '媒体不存在' }, { status: 404 });
     }
 
-    if (!session) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
+    if (key && !media.key.startsWith('media/')) {
+      return NextResponse.json({ error: '非法的对象键' }, { status: 403 });
     }
 
     let expires = 1800;
@@ -48,19 +50,16 @@ export async function GET(req: NextRequest) {
 
     const wantThumb =
       thumbParam === '1' || thumbParam === 'true' || thumbParam === 'yes';
-    const isImage = media.mimeType.startsWith('image/');
-    const isVideo = media.mimeType.startsWith('video/');
 
-    const url = await getSignedUrl(key, expires, {
-      thumb: wantThumb && isImage,
-      snapshot: wantThumb && isVideo,
-    });
+    const access = await getMediaAccessUrls(media, expires);
+    const url = wantThumb && access.thumbUrl ? access.thumbUrl : access.url;
 
     return NextResponse.json({
       url,
       expires,
       expiresAt: Date.now() + expires * 1000,
-      thumb: wantThumb && (isImage || isVideo),
+      thumb: wantThumb,
+      storage: access.storage,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '生成签名失败';

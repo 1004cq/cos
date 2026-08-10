@@ -1,5 +1,7 @@
 #!/bin/sh
 set -e
+echo "[cos] ensure local media dir..."
+mkdir -p "${LOCAL_MEDIA_ROOT:-/data/gallery}" || true
 echo "[cos] prisma db push..."
 npx prisma db push --skip-generate
 echo "[cos] seed admin..."
