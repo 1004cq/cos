@@ -25,7 +25,14 @@ export default function LoginPage() {
     setLoading(false);
 
     if (res?.error) {
-      setError('用户名或密码错误');
+      // NextAuth 把 authorize 抛出的 Error message 放在 error 字段
+      const msg = res.error;
+      if (msg.includes('过于频繁') || msg.includes('分钟后再试')) {
+        setError(msg);
+      } else {
+        // CredentialsSignin / 其它 → 统一文案，不区分用户是否存在
+        setError('用户名或密码错误');
+      }
       return;
     }
 
@@ -41,11 +48,13 @@ export default function LoginPage() {
           管理员登录
         </p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
           <div>
             <label className="block text-sm mb-1.5 font-medium">用户名</label>
             <input
               type="text"
+              name="username"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="input-glass"
@@ -57,6 +66,8 @@ export default function LoginPage() {
             <label className="block text-sm mb-1.5 font-medium">密码</label>
             <input
               type="password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="input-glass"

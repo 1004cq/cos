@@ -83,7 +83,7 @@ export default function HomePage() {
           </p>
         </div>
         <div className="flex gap-1.5 sm:gap-2 text-sm shrink-0">
-          {isAdmin ? (
+          {isAdmin && (
             <>
               <Link
                 href="/admin/upload"
@@ -98,13 +98,6 @@ export default function HomePage() {
                 管理
               </Link>
             </>
-          ) : (
-            <Link
-              href="/admin/login"
-              className="btn-ghost !min-h-[44px] !py-2 !px-3 text-sm"
-            >
-              管理入口
-            </Link>
           )}
         </div>
       </header>

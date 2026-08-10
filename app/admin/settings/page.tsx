@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, Loader2, Save, FlaskConical } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
+import { CheckCircle2, XCircle, Loader2, Save, FlaskConical, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type CosPublicConfig = {
@@ -38,8 +39,9 @@ const SOURCE_LABEL: Record<CosPublicConfig['source'], string> = {
 };
 
 export default function AdminSettingsPage() {
+  const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<'save' | 'saveTest' | 'test' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'saveTest' | 'test' | 'account' | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [meta, setMeta] = useState<Pick<
@@ -56,11 +58,21 @@ export default function AdminSettingsPage() {
   const [thumbWidth, setThumbWidth] = useState(480);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
+  const [accountUsername, setAccountUsername] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPassword2, setNewPassword2] = useState('');
+  const [accountError, setAccountError] = useState('');
+  const [accountSuccess, setAccountSuccess] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/admin/settings/cos');
+      const [res, accRes] = await Promise.all([
+        fetch('/api/admin/settings/cos'),
+        fetch('/api/admin/account'),
+      ]);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '读取配置失败');
 
@@ -78,12 +90,19 @@ export default function AdminSettingsPage() {
       // 密钥不回填明文；输入框保持空白
       setSecretId('');
       setSecretKey('');
+
+      if (accRes.ok) {
+        const acc = await accRes.json();
+        setAccountUsername(acc.username || session?.user?.name || '');
+      } else {
+        setAccountUsername(session?.user?.name || '');
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '读取失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [session?.user?.name]);
 
   useEffect(() => {
     void load();
@@ -184,6 +203,62 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function handleAccountSave(e: React.FormEvent) {
+    e.preventDefault();
+    setAccountError('');
+    setAccountSuccess('');
+
+    if (!currentPassword) {
+      setAccountError('请输入当前密码');
+      return;
+    }
+    if (newPassword && newPassword.length < 12) {
+      setAccountError('新密码至少 12 位');
+      return;
+    }
+    if (newPassword && newPassword !== newPassword2) {
+      setAccountError('两次输入的新密码不一致');
+      return;
+    }
+
+    const payload: Record<string, string> = { currentPassword };
+    if (newPassword) payload.newPassword = newPassword;
+    if (accountUsername.trim()) payload.newUsername = accountUsername.trim();
+
+    if (!payload.newPassword && !payload.newUsername) {
+      setAccountError('请填写新密码或修改用户名');
+      return;
+    }
+
+    setBusy('account');
+    try {
+      const res = await fetch('/api/admin/account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '更新失败');
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setNewPassword2('');
+
+      if (data.requireReLogin) {
+        setAccountSuccess('已更新，请使用新凭据重新登录');
+        setTimeout(() => {
+          void signOut({ callbackUrl: '/admin/login' });
+        }, 1200);
+      } else {
+        setAccountSuccess('已保存');
+      }
+    } catch (err: unknown) {
+      setAccountError(err instanceof Error ? err.message : '更新失败');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading) {
     return (
       <p className="text-center py-16 text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -198,7 +273,7 @@ export default function AdminSettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            腾讯云 COS · 数据库配置优先，未填项回退环境变量
+            账号安全 · 腾讯云 COS
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -208,13 +283,100 @@ export default function AdminSettingsPage() {
               meta?.ready ? 'text-green-700' : 'text-amber-700'
             )}
           >
-            {meta?.ready ? '就绪' : '未就绪'}
+            COS {meta?.ready ? '就绪' : '未就绪'}
           </span>
           <span className="px-2.5 py-1 rounded-lg glass" style={{ color: 'var(--text-muted)' }}>
             来源：{meta ? SOURCE_LABEL[meta.source] : '—'}
           </span>
         </div>
       </div>
+
+      <form
+        onSubmit={handleAccountSave}
+        className="rounded-3xl glass p-6 space-y-5"
+        autoComplete="off"
+      >
+        <div className="flex items-center gap-2">
+          <KeyRound className="w-5 h-5 text-blue-600" />
+          <h2 className="text-lg font-semibold">管理员账号</h2>
+        </div>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          修改需验证当前密码；新密码至少 12 位，仅存 bcrypt 哈希。改密或改用户名后需重新登录。
+        </p>
+        <div>
+          <label className="block text-sm mb-1.5 font-medium">用户名</label>
+          <input
+            className="input-glass text-sm"
+            type="text"
+            name="account-username"
+            autoComplete="username"
+            value={accountUsername}
+            onChange={(e) => setAccountUsername(e.target.value)}
+            maxLength={32}
+          />
+        </div>
+        <div>
+          <label className="block text-sm mb-1.5 font-medium">当前密码</label>
+          <input
+            className="input-glass text-sm"
+            type="password"
+            name="current-password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm mb-1.5 font-medium">新密码（可选）</label>
+          <input
+            className="input-glass text-sm"
+            type="password"
+            name="new-password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="至少 12 位，留空则不改密码"
+          />
+        </div>
+        <div>
+          <label className="block text-sm mb-1.5 font-medium">确认新密码</label>
+          <input
+            className="input-glass text-sm"
+            type="password"
+            name="new-password2"
+            autoComplete="new-password"
+            value={newPassword2}
+            onChange={(e) => setNewPassword2(e.target.value)}
+            placeholder="再次输入新密码"
+            disabled={!newPassword}
+          />
+        </div>
+        {accountError && (
+          <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
+            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{accountError}</span>
+          </div>
+        )}
+        {accountSuccess && !accountError && (
+          <div className="rounded-2xl glass px-4 py-3 text-sm text-green-700 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{accountSuccess}</span>
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={busy === 'account'}
+          className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {busy === 'account' ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          保存账号
+        </button>
+      </form>
 
       {error && (
         <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
@@ -258,6 +420,10 @@ export default function AdminSettingsPage() {
         }}
         autoComplete="off"
       >
+        <h2 className="text-lg font-semibold">腾讯云 COS</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          数据库配置优先，未填项回退环境变量。APPID 包含在 Bucket 名称末尾（name-appid）。
+        </p>
         <div>
           <label className="block text-sm mb-1.5 font-medium">SecretId</label>
           <input

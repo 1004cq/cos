@@ -6,6 +6,11 @@ const prisma = new PrismaClient();
 async function main() {
   const username = process.env.ADMIN_USERNAME || 'admin';
   const password = process.env.ADMIN_PASSWORD || 'admin123';
+  if (password.length < 12) {
+    console.warn(
+      '[seed] 警告：ADMIN_PASSWORD 少于 12 位，生产环境请使用更强密码（设置页改密也要求 ≥12）'
+    );
+  }
 
   const existing = await prisma.user.findUnique({ where: { username } });
   if (existing) {
