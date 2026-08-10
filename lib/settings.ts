@@ -69,14 +69,10 @@ export function normalizeCdnHost(input: string): string {
 /** 中文/IDN 网站域名不能当 COS CDN，否则签名 host 错误导致 404 */
 export function isUnsafeCdnHost(host: string): boolean {
   if (!host) return false;
-  // 含非 ASCII（中文域名等）
+  // 含非 ASCII（如 陈庆.我爱你）
   if (/[^\x00-\x7F]/.test(host)) return true;
-  // 常见把「网站域名」误填成 CDN
-  const lower = host.toLowerCase();
-  if (lower.includes('xn--')) {
-    // punycode 中文域：允许用户自担风险，但「我爱你」相关仍提示不安全
-    // 这里不一律拒绝 punycode，由调用方决定
-  }
+  // punycode 中文域（xn--…）同样不能当 COS CDN
+  if (host.toLowerCase().includes('xn--')) return true;
   return false;
 }
 
@@ -210,7 +206,9 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   }
   if (input.cdnDomain !== undefined) {
     // 允许空字符串：写入 DB，表示明确不使用 CDN，不再回退 env
-    const host = normalizeCdnHost(input.cdnDomain);
+    let host = normalizeCdnHost(input.cdnDomain);
+    // 中文/punycode 站域名一律存空，避免「清空后又被当成有效 CDN」
+    if (isUnsafeCdnHost(host)) host = '';
     await upsert('cos.cdnDomain', host, false);
   }
   if (input.thumbWidth !== undefined) {

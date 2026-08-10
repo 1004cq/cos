@@ -142,9 +142,11 @@ export default function AdminSettingsPage() {
 
       // 中文站域名不能当 COS CDN：保存前自动清空并提示
       let cdn = cdnDomain.trim();
-      if (hasNonAscii(cdn)) {
+      let clearedChinese = false;
+      if (hasNonAscii(cdn) || /xn--/i.test(cdn)) {
         cdn = '';
         setCdnDomain('');
+        clearedChinese = true;
       }
 
       const res = await fetch('/api/admin/settings/cos', {
@@ -173,16 +175,22 @@ export default function AdminSettingsPage() {
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
         if (data.test.ok) {
-          setSuccess('已保存，连通性测试通过。CDN 请留空（中文域名不要填）。');
+          setSuccess(
+            clearedChinese
+              ? '已保存；中文站域名不能当 COS CDN，已自动清空。连通性测试通过。'
+              : '已保存，连通性测试通过。CDN 可留空（推荐）。'
+          );
         } else {
-          setSuccess('已保存');
+          setSuccess(clearedChinese ? '已保存；中文站域名不能当 COS CDN，已自动清空' : '已保存');
           setError(data.test.error || '连通性测试失败');
         }
       } else {
         setSuccess(
-          cdn
-            ? '配置已保存'
-            : '配置已保存；CDN 已清空，上传将使用 COS 源站（推荐）'
+          clearedChinese
+            ? '已保存；中文站域名不能当 COS CDN，已自动清空。上传走 COS 源站。'
+            : cdn
+              ? '配置已保存'
+              : '配置已保存；CDN 已清空，上传将使用 COS 源站（推荐）'
         );
       }
     } catch (e: unknown) {
@@ -542,12 +550,13 @@ export default function AdminSettingsPage() {
             placeholder="可留空（推荐）"
           />
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            不要填网站域名「陈庆.我爱你」。中文域绑不了 COS，填了会导致上传
-            404。仅当已有英文 CDN 域名绑到本桶时才填写。
+            网站可用中文域；COS 文件走默认域名（如
+            cq-1327876314.cos.ap-hongkong.myqcloud.com）。CDN
+            仅英文且已绑到本桶时才填，切勿填「陈庆.我爱你」。
           </p>
           {(cdnLooksChinese || meta?.cdnIgnoredUnsafe) && (
             <p className="text-xs mt-2 text-amber-700">
-              检测到中文/非英文 CDN，运行时会忽略。请点「清空」后保存。
+              中文站域名不能当 COS CDN（运行时会忽略）。请点「清空」后保存。
             </p>
           )}
         </div>
