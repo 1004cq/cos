@@ -2,36 +2,35 @@
 
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { GalleryViewMode } from '@/components/gallery-types';
+import type { GalleryDensity } from '@/lib/gallery-density';
 
 type Props = {
-  mode: GalleryViewMode;
-  onModeChange: (mode: GalleryViewMode) => void;
+  density: GalleryDensity;
+  onDensityChange: (density: GalleryDensity) => void;
   onSearchClick: () => void;
   searchActive?: boolean;
 };
 
-const TABS: { id: GalleryViewMode | 'search'; label: string }[] = [
-  { id: 'library', label: '图库' },
+const TABS: { id: GalleryDensity | 'search'; label: string }[] = [
   { id: 'year', label: '年' },
   { id: 'month', label: '月' },
   { id: 'all', label: '全部' },
 ];
 
-export function GalleryTabBar({ mode, onModeChange, onSearchClick, searchActive }: Props) {
+export function GalleryTabBar({ density, onDensityChange, onSearchClick, searchActive }: Props) {
   return (
     <nav
       className="photos-tab-bar fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1.5 rounded-full"
       style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}
-      aria-label="图库导航"
+      aria-label="图库密度"
     >
       {TABS.map((tab) => {
-        const active = tab.id === mode;
+        const active = tab.id === density;
         return (
           <button
             key={tab.id}
             type="button"
-            onClick={() => onModeChange(tab.id as GalleryViewMode)}
+            onClick={() => onDensityChange(tab.id as GalleryDensity)}
             className={cn(
               'photos-tab-item min-h-[36px] px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors',
               active ? 'photos-tab-item-active' : 'text-[var(--photos-muted)]'

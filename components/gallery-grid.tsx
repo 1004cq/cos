@@ -1,33 +1,39 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDuration } from '@/lib/gallery-format';
+import { isCompactGrid, showTinyDuration } from '@/lib/gallery-density';
 import type { GalleryItem } from '@/components/gallery-types';
 
 function GridCell({
   item,
+  columns,
   selectMode,
   selected,
   onToggleSelect,
   onOpen,
 }: {
   item: GalleryItem;
+  columns: number;
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
   onOpen: () => void;
 }) {
   const isVideo = item.kind === 'video' || item.mimeType.startsWith('video/');
-  const src = isVideo ? item.url : item.thumbUrl || item.url;
+  const compact = isCompactGrid(columns);
+  const tinyDuration = showTinyDuration(columns);
+  /** 网格内一律用缩略图 URL，减轻流量 */
+  const src = item.thumbUrl || item.url;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [frameReady, setFrameReady] = useState(!isVideo);
+  const [frameReady, setFrameReady] = useState(!isVideo || compact);
 
   useEffect(() => {
-    if (!isVideo) return;
+    if (!isVideo || compact) return;
     setFrameReady(false);
-  }, [item.id, isVideo]);
+  }, [item.id, isVideo, compact]);
 
   function handleClick() {
     if (selectMode) onToggleSelect();
@@ -46,7 +52,7 @@ function GridCell({
       aria-label={item.filename}
       aria-pressed={selectMode ? selected : undefined}
     >
-      {isVideo ? (
+      {isVideo && !compact ? (
         <>
           <video
             ref={videoRef}
@@ -73,6 +79,10 @@ function GridCell({
           />
           {!frameReady && <div className="absolute inset-0 bg-[#E5E5EA] animate-pulse" />}
         </>
+      ) : isVideo && compact ? (
+        <div className="absolute inset-0 bg-[#D1D1D6] flex items-center justify-center">
+          <Play className="w-[40%] h-[40%] text-white/90 drop-shadow" fill="currentColor" strokeWidth={0} />
+        </div>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -85,20 +95,27 @@ function GridCell({
         />
       )}
 
-      {isVideo && item.duration != null && (
-        <span className="photos-duration">{formatDuration(item.duration)}</span>
+      {isVideo && !compact && item.duration != null && (
+        <span
+          className={cn('photos-duration', tinyDuration && 'photos-duration-tiny')}
+        >
+          {formatDuration(item.duration)}
+        </span>
       )}
 
       {selectMode && (
         <span
           className={cn(
-            'absolute top-1.5 right-1.5 w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-colors',
+            'absolute top-1 right-1 rounded-full border-2 flex items-center justify-center transition-colors',
+            columns >= 7 ? 'w-4 h-4' : 'w-[22px] h-[22px]',
             selected
               ? 'bg-[#007AFF] border-[#007AFF] text-white'
               : 'bg-black/25 border-white/90'
           )}
         >
-          {selected && <Check className="w-3 h-3" strokeWidth={3} />}
+          {selected && (
+            <Check className={cn(columns >= 7 ? 'w-2.5 h-2.5' : 'w-3 h-3')} strokeWidth={3} />
+          )}
         </span>
       )}
     </button>
@@ -113,24 +130,32 @@ export type DaySection = {
 
 type Props = {
   sections: DaySection[];
+  columns: number;
   selectMode: boolean;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onOpen: (item: GalleryItem) => void;
   onSectionVisible?: (sectionKey: string) => void;
   showInlineHeaders?: boolean;
+  /** 捏合过程中显示分组浮层标题 */
+  showOverlayHeaders?: boolean;
 };
 
 export function GalleryGrid({
   sections,
+  columns,
   selectMode,
   selectedIds,
   onToggleSelect,
   onOpen,
   onSectionVisible,
-  showInlineHeaders = true,
+  showInlineHeaders = false,
+  showOverlayHeaders = false,
 }: Props) {
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const gridStyle = {
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+  };
 
   useEffect(() => {
     observerRef.current?.disconnect();
@@ -166,17 +191,31 @@ export function GalleryGrid({
   return (
     <div className="photos-grid-wrap">
       {sections.map((section) => (
-        <section key={section.key} data-section-key={section.key} className="photos-section">
+        <section key={section.key} data-section-key={section.key} className="photos-section relative">
           {showInlineHeaders && (
-            <h2 className="photos-section-title px-4 pt-5 pb-2 text-[22px] font-bold tracking-tight">
+            <h2
+              className={cn(
+                'photos-section-title px-4 pt-4 pb-2 font-bold tracking-tight',
+                columns >= 7 ? 'text-[15px]' : 'text-[22px]'
+              )}
+            >
               {section.label}
             </h2>
           )}
-          <div className="photos-grid">
+          {showOverlayHeaders && !showInlineHeaders && (
+            <div
+              className="photos-section-overlay"
+              aria-hidden
+            >
+              {section.label}
+            </div>
+          )}
+          <div className="photos-grid" style={gridStyle}>
             {section.items.map((item) => (
               <GridCell
                 key={item.id}
                 item={item}
+                columns={columns}
                 selectMode={selectMode}
                 selected={selectedIds.has(item.id)}
                 onToggleSelect={() => onToggleSelect(item.id)}

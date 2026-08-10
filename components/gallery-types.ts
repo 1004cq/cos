@@ -9,4 +9,7 @@ export type GalleryItem = LightboxItem & {
   duration?: number | null;
 };
 
-export type GalleryViewMode = 'library' | 'year' | 'month' | 'all';
+export type GalleryDensity = import('@/lib/gallery-density').GalleryDensity;
+
+/** @deprecated 使用 GalleryDensity */
+export type GalleryViewMode = GalleryDensity | 'library';

@@ -187,9 +187,42 @@ body::before {
 
 .photos-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 1px;
   background: #fff;
+  transition: grid-template-columns 0.15s ease-out;
+}
+
+.photos-pinch-active .photos-grid {
+  transition: none;
+}
+
+.photos-pinch-surface {
+  min-height: 100%;
+}
+
+.photos-section-overlay {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 52px);
+  z-index: 5;
+  margin: 0 auto 4px;
+  width: fit-content;
+  max-width: 90%;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+.photos-duration-tiny {
+  font-size: 9px;
+  padding: 0 3px;
+  right: 2px;
+  bottom: 2px;
 }
 
 .photos-section-title {

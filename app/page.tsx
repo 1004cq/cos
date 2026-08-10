@@ -6,8 +6,13 @@ import { useSession } from 'next-auth/react';
 import { MoreHorizontal, Search, X } from 'lucide-react';
 import { Lightbox } from '@/components/lightbox';
 import { GalleryGrid, type DaySection } from '@/components/gallery-grid';
+import { GalleryPinchGrid } from '@/components/gallery-pinch-grid';
 import { GalleryTabBar } from '@/components/gallery-tab-bar';
-import type { GalleryItem, GalleryViewMode } from '@/components/gallery-types';
+import type { GalleryItem } from '@/components/gallery-types';
+import {
+  type GalleryDensity,
+  DENSITY_PRESETS,
+} from '@/lib/gallery-density';
 import {
   dayKey,
   formatGalleryDay,
@@ -19,15 +24,12 @@ import {
 } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
 
-function buildSections(
-  items: GalleryItem[],
-  mode: GalleryViewMode
-): DaySection[] {
+function buildSections(items: GalleryItem[], groupBy: 'day' | 'month' | 'year'): DaySection[] {
   const sorted = [...items].sort(
     (a, b) => itemSortDate(b).getTime() - itemSortDate(a).getTime()
   );
 
-  if (mode === 'year') {
+  if (groupBy === 'year') {
     const map = new Map<string, GalleryItem[]>();
     for (const item of sorted) {
       const k = yearKey(itemSortDate(item));
@@ -43,7 +45,7 @@ function buildSections(
       }));
   }
 
-  if (mode === 'month') {
+  if (groupBy === 'month') {
     const map = new Map<string, GalleryItem[]>();
     for (const item of sorted) {
       const k = monthKey(itemSortDate(item));
@@ -59,7 +61,6 @@ function buildSections(
       }));
   }
 
-  // library / all — 按日分组
   const map = new Map<string, GalleryItem[]>();
   for (const item of sorted) {
     const d = itemSortDate(item);
@@ -83,7 +84,7 @@ export default function HomePage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [viewMode, setViewMode] = useState<GalleryViewMode>('library');
+  const [density, setDensity] = useState<GalleryDensity>('all');
   const [headerDateKey, setHeaderDateKey] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectMode, setSelectMode] = useState(false);
@@ -92,6 +93,8 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const preset = DENSITY_PRESETS[density];
 
   useEffect(() => {
     async function load() {
@@ -127,17 +130,14 @@ export default function HomePage() {
   }, [items, searchQuery]);
 
   const sections = useMemo(
-    () => buildSections(filteredItems, viewMode === 'all' ? 'library' : viewMode),
-    [filteredItems, viewMode]
+    () => buildSections(filteredItems, preset.groupBy),
+    [filteredItems, preset.groupBy]
   );
 
-  const flatItems = useMemo(
-    () => sections.flatMap((s) => s.items),
-    [sections]
-  );
+  const flatItems = useMemo(() => sections.flatMap((s) => s.items), [sections]);
 
   const headerLabel = useMemo(() => {
-    if (viewMode === 'year' || viewMode === 'month') {
+    if (density !== 'all') {
       return filteredItems.length ? `共 ${filteredItems.length} 项` : '';
     }
     if (headerDateKey) {
@@ -145,7 +145,7 @@ export default function HomePage() {
       if (sec) return sec.label;
     }
     return sections[0]?.label ?? '';
-  }, [headerDateKey, sections, viewMode, filteredItems.length]);
+  }, [headerDateKey, sections, density, filteredItems.length]);
 
   useEffect(() => {
     if (sections[0]?.key) setHeaderDateKey(sections[0].key);
@@ -219,9 +219,10 @@ export default function HomePage() {
     }
   }
 
+  const skeletonCols = preset.columns;
+
   return (
     <div className="photos-app min-h-[100dvh] flex flex-col bg-[#FFFFFF]">
-      {/* 顶栏 */}
       <header
         className="sticky top-0 z-20 bg-[#FFFFFF]/92 backdrop-blur-xl border-b border-black/[0.06]"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
@@ -266,7 +267,11 @@ export default function HomePage() {
                     删除
                   </button>
                 )}
-                <button type="button" className="photos-pill-btn photos-pill-btn-primary" onClick={exitSelectMode}>
+                <button
+                  type="button"
+                  className="photos-pill-btn photos-pill-btn-primary"
+                  onClick={exitSelectMode}
+                >
                   完成
                 </button>
               </>
@@ -352,38 +357,48 @@ export default function HomePage() {
 
       {error && <p className="text-center px-4 py-3 text-sm text-red-500">{error}</p>}
 
-      <main
-        className={cn(
-          'flex-1 pb-[calc(72px+env(safe-area-inset-bottom))]',
-          viewMode === 'library' && 'photos-grid-wrap'
-        )}
-      >
+      <main className="flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] touch-pan-y">
         {loading ? (
-          <div className="photos-grid">
-            {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            className="photos-grid"
+            style={{ gridTemplateColumns: `repeat(${skeletonCols}, minmax(0, 1fr))` }}
+          >
+            {Array.from({ length: skeletonCols * 4 }).map((_, i) => (
               <div key={i} className="aspect-square bg-[#E5E5EA] animate-pulse" />
             ))}
           </div>
         ) : (
-          <GalleryGrid
-            sections={sections}
-            selectMode={selectMode}
-            selectedIds={selected}
-            onToggleSelect={toggleSelect}
-            onOpen={openItem}
-            onSectionVisible={viewMode === 'library' || viewMode === 'all' ? onSectionVisible : undefined}
-            showInlineHeaders={viewMode !== 'library' && viewMode !== 'all'}
-          />
+          <GalleryPinchGrid density={density} onDensityChange={setDensity}>
+            {({ columns, pinching, bind }) => (
+              <div
+                {...bind()}
+                className={cn(
+                  'photos-pinch-surface outline-none',
+                  pinching && 'photos-pinch-active'
+                )}
+                style={{ touchAction: 'pan-y pinch-zoom' }}
+              >
+                <GalleryGrid
+                  sections={sections}
+                  columns={columns}
+                  selectMode={selectMode}
+                  selectedIds={selected}
+                  onToggleSelect={toggleSelect}
+                  onOpen={openItem}
+                  onSectionVisible={density === 'all' ? onSectionVisible : undefined}
+                  showInlineHeaders={preset.showSectionHeaders}
+                  showOverlayHeaders={pinching && columns >= 6 && density === 'all'}
+                />
+              </div>
+            )}
+          </GalleryPinchGrid>
         )}
       </main>
 
       {!selectMode && (
         <GalleryTabBar
-          mode={viewMode}
-          onModeChange={(m) => {
-            setViewMode(m);
-            setLightboxIndex(null);
-          }}
+          density={density}
+          onDensityChange={setDensity}
           searchActive={searchOpen}
           onSearchClick={() => {
             setSearchOpen((v) => !v);
