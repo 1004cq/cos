@@ -17,6 +17,8 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  --photos-muted: #8E8E93;
+  --photos-separator: rgba(60, 60, 67, 0.12);
 }
 
 html {
@@ -171,4 +173,125 @@ body::before {
 }
 .media-tile:hover .media-cover {
   transform: scale(1.04);
+}
+
+/* ── iOS 照片风格（前台图库） ── */
+.photos-app {
+  color: #000;
+  -webkit-font-smoothing: antialiased;
+}
+
+.photos-grid-wrap {
+  background: #fff;
+}
+
+.photos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: #fff;
+}
+
+.photos-section-title {
+  scroll-margin-top: 88px;
+}
+
+.photos-duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 4px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.photos-tab-bar {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.photos-tab-item-active {
+  background: rgba(0, 0, 0, 0.06);
+  color: #000;
+  font-weight: 600;
+}
+
+.photos-pill-btn {
+  @apply inline-flex items-center justify-center px-3.5 rounded-full text-[15px] font-medium transition;
+  min-height: 32px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
+}
+.photos-pill-btn-primary {
+  background: #007AFF;
+  color: #fff;
+}
+
+.photos-icon-btn {
+  @apply inline-flex items-center justify-center rounded-full transition active:scale-95;
+  min-width: 44px;
+  min-height: 44px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #000;
+}
+.photos-icon-btn-lg {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.photos-date-capsule {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.photos-filmstrip {
+  background: rgba(242, 242, 247, 0.95);
+  border-top: 1px solid var(--photos-separator);
+}
+
+.photos-toolbar {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--photos-separator);
+}
+
+.photos-toolbar-btn {
+  @apply inline-flex items-center justify-center rounded-xl transition active:opacity-60;
+  min-width: 44px;
+  min-height: 44px;
+  color: #000;
+}
+
+.photos-viewer {
+  animation: photos-fade-in 0.2s ease-out;
+}
+
+@keyframes photos-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

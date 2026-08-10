@@ -442,6 +442,7 @@ export default function AdminAlbumDetailPage({
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onChange={setLightboxIndex}
+          variant="simple"
         />
       )}
     </div>

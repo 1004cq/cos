@@ -626,6 +626,7 @@ export default function AdminMediaPage() {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onChange={setLightboxIndex}
+          variant="simple"
         />
       )}
     </div>
