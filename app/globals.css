@@ -306,6 +306,55 @@ body::before {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 全屏沉浸详情：占满视口，chrome 浮层不挤压媒体 */
+.photos-viewer-fs {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 100vw;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.photos-viewer-media,
+.photos-viewer-carousel,
+.photos-viewer-slide {
+  width: 100%;
+  height: 100%;
+}
+
+.photos-viewer-media-el {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.photos-viewer-chrome-top {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.55), transparent);
+  pointer-events: none;
+}
+.photos-viewer-chrome-top > * {
+  pointer-events: auto;
+}
+
+.photos-viewer-chrome-bottom {
+  background: linear-gradient(to top, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.72), transparent);
+  pointer-events: none;
+}
+.photos-viewer-chrome-bottom > * {
+  pointer-events: auto;
+}
+
+.photos-filmstrip {
+  background: transparent;
+}
+
 .photos-video-bar {
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(20px) saturate(1.6);
@@ -345,14 +394,6 @@ body::before {
   border: none;
   border-radius: 50%;
   background: #007aff;
-}
-
-.photos-filmstrip {
-  background: rgba(255, 255, 255, 0.96);
-}
-
-.photos-video-seek:disabled {
-  pointer-events: none;
 }
 
 .photos-filmstrip-thumb {

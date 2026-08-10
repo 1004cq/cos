@@ -6,7 +6,6 @@ import { Loader2 } from 'lucide-react';
 import { mediaDisplayTitle } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import type { LightboxItem } from '@/components/lightbox';
-import { PhotoViewerVideoBar } from '@/components/photo-viewer-video-bar';
 
 function blockSave(e: React.SyntheticEvent) {
   e.preventDefault();
@@ -124,34 +123,31 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
 
   if (isVideo) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-white min-h-0">
-        <div className="flex-1 w-full flex items-center justify-center min-h-0 px-1 relative">
-          {active ? (
-            <video
-              ref={videoRef}
-              src={fullUrl || undefined}
-              poster={thumbUrl || undefined}
-              playsInline
-              preload="metadata"
-              controls={false}
-              controlsList="nodownload noplaybackrate noremoteplayback"
-              disablePictureInPicture
-              className="max-h-full max-w-full w-auto h-auto object-contain"
-              onContextMenu={blockSave}
-            />
-          ) : thumbUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={thumbUrl}
-              alt=""
-              className="max-h-full max-w-full object-contain"
-              draggable={false}
-            />
-          ) : (
-            <div className="w-full h-40 bg-[#E5E5EA]" />
-          )}
-        </div>
-        {active && videoRef && <PhotoViewerVideoBar videoRef={videoRef} active={active} />}
+      <div className="photos-viewer-slide relative w-full h-full bg-white">
+        {active ? (
+          <video
+            ref={videoRef}
+            src={fullUrl || undefined}
+            poster={thumbUrl || undefined}
+            playsInline
+            preload="metadata"
+            controls={false}
+            controlsList="nodownload noplaybackrate noremoteplayback"
+            disablePictureInPicture
+            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
+            onContextMenu={blockSave}
+          />
+        ) : thumbUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={thumbUrl}
+            alt=""
+            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
+            draggable={false}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-[#E5E5EA]" />
+        )}
       </div>
     );
   }
@@ -161,7 +157,7 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   return (
     <div
       {...(active ? bindPinch() : {})}
-      className="w-full h-full flex items-center justify-center bg-white touch-none select-none relative"
+      className="photos-viewer-slide relative w-full h-full bg-white touch-none select-none"
       onDoubleClick={onDoubleClick}
       onTouchEnd={onTouchEndZoom}
       onContextMenu={blockSave}
@@ -172,10 +168,12 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
         </div>
       )}
       {status === 'error' && active && !displayUrl && (
-        <p className="text-sm text-red-500 pointer-events-none">加载失败</p>
+        <p className="absolute inset-0 flex items-center justify-center text-sm text-red-500 pointer-events-none">
+          加载失败
+        </p>
       )}
       {status === 'error' && active && displayUrl && (
-        <p className="absolute bottom-4 left-0 right-0 text-center text-sm text-red-500 pointer-events-none z-[2]">
+        <p className="absolute bottom-[22%] left-0 right-0 text-center text-sm text-red-500 pointer-events-none z-[2]">
           加载失败
         </p>
       )}
@@ -186,7 +184,7 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
           alt={title}
           draggable={false}
           className={cn(
-            'max-h-full max-w-full object-contain no-save will-change-transform',
+            'photos-viewer-media-el absolute inset-0 w-full h-full object-contain no-save will-change-transform',
             status === 'error' && !item.thumbUrl ? 'opacity-0' : 'opacity-100'
           )}
           style={{
@@ -218,6 +216,7 @@ type CarouselProps = {
   imageScale: number;
   onScaleChange: (scale: number) => void;
   swipeEnabled: boolean;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
 };
 
 export function PhotoViewerCarousel({
@@ -227,9 +226,11 @@ export function PhotoViewerCarousel({
   imageScale,
   onScaleChange,
   swipeEnabled,
+  videoRef: videoRefProp,
 }: CarouselProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const internalVideoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = videoRefProp ?? internalVideoRef;
   const [vw, setVw] = useState(0);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -257,7 +258,7 @@ export function PhotoViewerCarousel({
         /* ignore */
       }
     }
-  }, [index, onScaleChange]);
+  }, [index, onScaleChange, videoRef]);
 
   const commit = useCallback(
     (nextIndex: number, animateTo: number) => {
@@ -323,7 +324,7 @@ export function PhotoViewerCarousel({
   return (
     <div
       ref={viewportRef}
-      className="flex-1 min-h-0 overflow-hidden bg-white touch-pan-y"
+      className="photos-viewer-carousel absolute inset-0 w-full h-full overflow-hidden bg-white touch-pan-y"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -332,13 +333,18 @@ export function PhotoViewerCarousel({
         <div
           className="flex h-full"
           style={{
-            width: trackWidth,
+            width: trackWidth || '100%',
+            height: '100%',
             transform: `translateX(${-baseOffset + dragX}px)`,
             transition: isDragging ? 'none' : 'transform 0.28s ease-out',
           }}
         >
           {indices.map((i) => (
-            <div key={items[i]!.id} className="h-full shrink-0" style={{ width: vw }}>
+            <div
+              key={items[i]!.id}
+              className="h-full shrink-0 relative"
+              style={{ width: vw, height: '100%' }}
+            >
               <ViewerSlide
                 item={items[i]!}
                 active={i === index}
