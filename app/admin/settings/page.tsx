@@ -12,6 +12,8 @@ type CosPublicConfig = {
   bucket: string;
   region: string;
   cdnDomain: string;
+  cdnDomainEffective?: string;
+  cdnIgnoredUnsafe?: boolean;
   thumbWidth: number;
   source: 'database' | 'env' | 'mixed';
   ready: boolean;
@@ -38,6 +40,10 @@ const SOURCE_LABEL: Record<CosPublicConfig['source'], string> = {
   mixed: '混合（DB + env）',
 };
 
+function hasNonAscii(s: string) {
+  return /[^\x00-\x7F]/.test(s);
+}
+
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
@@ -46,10 +52,9 @@ export default function AdminSettingsPage() {
   const [success, setSuccess] = useState('');
   const [meta, setMeta] = useState<Pick<
     CosPublicConfig,
-    'secretId' | 'secretIdSet' | 'secretKeySet' | 'source' | 'ready'
+    'secretId' | 'secretIdSet' | 'secretKeySet' | 'source' | 'ready' | 'cdnIgnoredUnsafe'
   > | null>(null);
 
-  // 表单：SecretKey 只在内存中，从不写入 localStorage
   const [secretId, setSecretId] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [bucket, setBucket] = useState('');
@@ -82,12 +87,13 @@ export default function AdminSettingsPage() {
         secretKeySet: Boolean(data.secretKeySet),
         source: data.source || 'env',
         ready: Boolean(data.ready),
+        cdnIgnoredUnsafe: Boolean(data.cdnIgnoredUnsafe),
       });
       setBucket(data.bucket || '');
       setRegion(data.region || 'ap-hongkong');
+      // 展示库里的值；若含中文会提示清空
       setCdnDomain(data.cdnDomain || '');
       setThumbWidth(Number(data.thumbWidth) || 480);
-      // 密钥不回填明文；输入框保持空白
       setSecretId('');
       setSecretKey('');
 
@@ -112,6 +118,7 @@ export default function AdminSettingsPage() {
     const payload: Record<string, unknown> = {
       bucket: bucket.trim(),
       region: region.trim(),
+      // 始终提交（含空字符串），以便清空数据库中的旧 CDN
       cdnDomain: cdnDomain.trim(),
       thumbWidth: Number(thumbWidth) || 480,
     };
@@ -133,10 +140,17 @@ export default function AdminSettingsPage() {
         throw new Error('Bucket 与 Region 为必填');
       }
 
+      // 中文站域名不能当 COS CDN：保存前自动清空并提示
+      let cdn = cdnDomain.trim();
+      if (hasNonAscii(cdn)) {
+        cdn = '';
+        setCdnDomain('');
+      }
+
       const res = await fetch('/api/admin/settings/cos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...buildPayload(), test: withTest }),
+        body: JSON.stringify({ ...buildPayload(), cdnDomain: cdn, test: withTest }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '保存失败');
@@ -147,25 +161,29 @@ export default function AdminSettingsPage() {
         secretKeySet: Boolean(data.secretKeySet),
         source: data.source || 'database',
         ready: Boolean(data.ready),
+        cdnIgnoredUnsafe: Boolean(data.cdnIgnoredUnsafe),
       });
       setBucket(data.bucket || bucket);
       setRegion(data.region || region);
-      setCdnDomain(data.cdnDomain ?? cdnDomain);
+      setCdnDomain(data.cdnDomain ?? '');
       setThumbWidth(Number(data.thumbWidth) || thumbWidth);
-      // 保存成功后清空密钥输入，避免明文留在 state
       setSecretId('');
       setSecretKey('');
 
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
         if (data.test.ok) {
-          setSuccess('已保存，连通性测试通过');
+          setSuccess('已保存，连通性测试通过。CDN 请留空（中文域名不要填）。');
         } else {
           setSuccess('已保存');
           setError(data.test.error || '连通性测试失败');
         }
       } else {
-        setSuccess('配置已保存，上传与签名将使用新配置');
+        setSuccess(
+          cdn
+            ? '配置已保存'
+            : '配置已保存；CDN 已清空，上传将使用 COS 源站（推荐）'
+        );
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存失败');
@@ -198,7 +216,6 @@ export default function AdminSettingsPage() {
       setError(e instanceof Error ? e.message : '测试失败');
     } finally {
       setBusy(null);
-      // 测试后也清空刚输入的密钥，降低停留内存时间
       setSecretKey('');
     }
   }
@@ -266,6 +283,8 @@ export default function AdminSettingsPage() {
       </p>
     );
   }
+
+  const cdnLooksChinese = hasNonAscii(cdnDomain);
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -422,8 +441,9 @@ export default function AdminSettingsPage() {
       >
         <h2 className="text-lg font-semibold">腾讯云 COS</h2>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          数据库配置优先，未填项回退环境变量。APPID 包含在 Bucket 名称末尾（name-appid）。
+          数据库配置优先。Bucket 需含 APPID（如 cq-1327876314）。香港桶 Region 填 ap-hongkong。
         </p>
+
         <div>
           <label className="block text-sm mb-1.5 font-medium">SecretId</label>
           <input
@@ -451,9 +471,7 @@ export default function AdminSettingsPage() {
             autoComplete="new-password"
             value={secretKey}
             onChange={(e) => setSecretKey(e.target.value)}
-            placeholder={
-              meta?.secretKeySet ? '已配置则留空不修改' : '请输入 SecretKey'
-            }
+            placeholder={meta?.secretKeySet ? '已配置则留空不修改' : '请输入 SecretKey'}
           />
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
             密钥仅保存在服务端（加密），不会回填明文，也不会写入浏览器本地存储
@@ -466,7 +484,7 @@ export default function AdminSettingsPage() {
             className="input-glass font-mono text-sm"
             value={bucket}
             onChange={(e) => setBucket(e.target.value)}
-            placeholder="example-1250000000"
+            placeholder="cq-1327876314"
             required
           />
         </div>
@@ -487,7 +505,7 @@ export default function AdminSettingsPage() {
             ))}
           </datalist>
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            本站桶在香港：请填 ap-hongkong（其它如 ap-guangzhou、ap-shanghai）
+            本站桶在香港：请填 ap-hongkong
           </p>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {REGION_OPTIONS.slice(0, 6).map((r) => (
@@ -507,13 +525,31 @@ export default function AdminSettingsPage() {
         </div>
 
         <div>
-          <label className="block text-sm mb-1.5 font-medium">CDN / 自定义域名</label>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <label className="block text-sm font-medium">CDN / 自定义域名</label>
+            <button
+              type="button"
+              className="text-xs text-blue-600 hover:underline"
+              onClick={() => setCdnDomain('')}
+            >
+              清空
+            </button>
+          </div>
           <input
             className="input-glass text-sm"
             value={cdnDomain}
             onChange={(e) => setCdnDomain(e.target.value)}
-            placeholder="陈庆.我爱你（可选）"
+            placeholder="可留空（推荐）"
           />
+          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+            不要填网站域名「陈庆.我爱你」。中文域绑不了 COS，填了会导致上传
+            404。仅当已有英文 CDN 域名绑到本桶时才填写。
+          </p>
+          {(cdnLooksChinese || meta?.cdnIgnoredUnsafe) && (
+            <p className="text-xs mt-2 text-amber-700">
+              检测到中文/非英文 CDN，运行时会忽略。请点「清空」后保存。
+            </p>
+          )}
         </div>
 
         <div>
