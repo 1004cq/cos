@@ -126,7 +126,7 @@ export function Lightbox({ items, index, onClose, onChange }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/45 backdrop-blur-md no-save"
+      className="fixed inset-0 z-50 flex flex-col bg-black/45 backdrop-blur-md"
       onClick={onClose}
       onContextMenu={blockSave}
       onDragStart={blockSave}
