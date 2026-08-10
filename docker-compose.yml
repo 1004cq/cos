@@ -26,9 +26,15 @@ services:
     environment:
       DATABASE_URL: postgresql://cos:${POSTGRES_PASSWORD}@db:5432/cos?schema=public
       PORT: "3000"
+      LOCAL_MEDIA_ROOT: ${LOCAL_MEDIA_ROOT:-/data/gallery}
+      DEFAULT_STORAGE: ${DEFAULT_STORAGE:-cos}
+    volumes:
+      # 本地存储媒体文件；切换/重启不丢文件
+      - gallery_data:/data/gallery
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres_data:
+  gallery_data:

@@ -30,6 +30,9 @@ model Media {
   id          String    @id @default(cuid())
   albumId     String?
   album       Album?    @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  /// cos | local；历史数据默认 cos
+  storage     String    @default("cos")
+  /// cos：对象键；local：相对 LOCAL_MEDIA_ROOT 的路径（均以 media/ 开头）
   key         String    @unique
   filename    String
   /// 展示标题（可选）；filename 始终保留原文件名
@@ -46,6 +49,7 @@ model Media {
   @@index([albumId])
   @@index([takenAt])
   @@index([createdAt])
+  @@index([storage])
 }
 
 model ShareLink {

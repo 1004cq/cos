@@ -1,5 +1,6 @@
 import COS from 'cos-nodejs-sdk-v5';
 import { getCosConfig, type CosRuntimeConfig } from './settings';
+import { generateMediaKey } from './storage';
 
 // STS 可选：若项目有 lib/sts.ts 可再接入
 let stsModule: {
@@ -163,13 +164,7 @@ export async function getSignedUrl(
 }
 
 export function generateKey(filename: string): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  const ext = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : 'bin';
-  const random = Math.random().toString(36).slice(2, 10);
-  return `media/${y}/${m}/${d}/${Date.now()}-${random}.${ext}`;
+  return generateMediaKey(filename);
 }
 
 export async function deleteObject(key: string): Promise<void> {

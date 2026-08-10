@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { prisma } from '@/lib/prisma';
+import type { StorageBackend } from '@/lib/storage';
 
 const COS_KEYS = [
   'cos.secretId',
@@ -217,3 +218,49 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
 }
 
 export { COS_KEYS, maskSecret };
+export type { StorageBackend };
+
+export type StorageRuntimeConfig = {
+  defaultStorage: StorageBackend;
+  localRoot: string;
+  localRootConfigured: boolean;
+};
+
+function parseDefaultStorage(raw: string | null | undefined): StorageBackend {
+  const v = (raw || '').trim().toLowerCase();
+  return v === 'local' ? 'local' : 'cos';
+}
+
+/** 默认存储：DB storage.default 可覆盖；本地根目录仅 env */
+export async function getStorageConfig(): Promise<StorageRuntimeConfig> {
+  const dbDefault = await getSettingRaw('storage.default');
+  const envDefault = process.env.DEFAULT_STORAGE || 'cos';
+  const defaultStorage = parseDefaultStorage(dbDefault !== null ? dbDefault : envDefault);
+  const localRoot = (process.env.LOCAL_MEDIA_ROOT || '/data/gallery').trim() || '/data/gallery';
+  return {
+    defaultStorage,
+    localRoot,
+    localRootConfigured: Boolean(process.env.LOCAL_MEDIA_ROOT?.trim()),
+  };
+}
+
+export async function getStorageConfigPublic() {
+  const c = await getStorageConfig();
+  return {
+    defaultStorage: c.defaultStorage,
+    localRootConfigured: c.localRootConfigured,
+    /** 只展示路径提示，不鼓励在前端改 */
+    localRootHint: c.localRootConfigured ? c.localRoot : '(未设置 LOCAL_MEDIA_ROOT，默认 /data/gallery)',
+  };
+}
+
+export async function saveStorageDefault(defaultStorage: StorageBackend): Promise<void> {
+  if (defaultStorage !== 'local' && defaultStorage !== 'cos') {
+    throw new Error('defaultStorage 无效');
+  }
+  await prisma.systemSetting.upsert({
+    where: { key: 'storage.default' },
+    create: { key: 'storage.default', value: defaultStorage, secret: false },
+    update: { value: defaultStorage, secret: false },
+  });
+}

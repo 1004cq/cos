@@ -23,6 +23,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+RUN mkdir -p /data/gallery && chown -R nextjs:nodejs /data/gallery
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
@@ -37,4 +38,5 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+ENV LOCAL_MEDIA_ROOT=/data/gallery
 ENTRYPOINT ["./docker-entrypoint.sh"]

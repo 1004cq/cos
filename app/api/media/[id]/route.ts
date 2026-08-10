@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { deleteObject } from '@/lib/cos';
 import { normalizeMediaTitle } from '@/lib/utils';
+import { deleteLocalMediaFile, normalizeStorage } from '@/lib/storage';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,7 +37,6 @@ export async function GET(_req: NextRequest, { params }: Params) {
 /**
  * 更新媒体
  * Body: { albumId?: string | null, title?: string | null }
- * title 传 null 或空字符串可清空标题
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
@@ -94,7 +94,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 /**
  * 删除媒体
- * Query: deleteFromCos=1 时同步删除 COS 对象（可选）
+ * Query: deleteFile=1 或 deleteFromCos=1 时同步删除对应存储上的文件
  */
 export async function DELETE(req: NextRequest, { params }: Params) {
   try {
@@ -104,22 +104,28 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     }
 
     const { id } = await params;
-    const deleteFromCos = new URL(req.url).searchParams.get('deleteFromCos') === '1';
+    const qs = new URL(req.url).searchParams;
+    const deleteFile = qs.get('deleteFile') === '1' || qs.get('deleteFromCos') === '1';
 
     const media = await prisma.media.findUnique({ where: { id } });
     if (!media) {
       return NextResponse.json({ error: '媒体不存在' }, { status: 404 });
     }
 
-    // 先删 COS，失败则不删 DB，避免静默成功留下孤儿状态不清
-    if (deleteFromCos) {
+    const storage = normalizeStorage(media.storage, 'cos');
+
+    if (deleteFile) {
       try {
-        await deleteObject(media.key);
+        if (storage === 'cos') {
+          await deleteObject(media.key);
+        } else {
+          await deleteLocalMediaFile(media.key);
+        }
       } catch (err: unknown) {
-        const cosError = err instanceof Error ? err.message : 'COS 删除失败';
-        console.error('delete cos object error:', err);
+        const msg = err instanceof Error ? err.message : '存储删除失败';
+        console.error('delete storage object error:', err);
         return NextResponse.json(
-          { error: `COS 删除失败，已中止：${cosError}`, cosDeleted: false },
+          { error: `存储删除失败，已中止：${msg}`, fileDeleted: false },
           { status: 502 }
         );
       }
@@ -129,7 +135,9 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
     return NextResponse.json({
       success: true,
-      cosDeleted: deleteFromCos,
+      storage,
+      fileDeleted: deleteFile,
+      cosDeleted: deleteFile && storage === 'cos',
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '删除失败';

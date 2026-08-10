@@ -3,15 +3,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
-import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
+import { SIGN_CONCURRENCY } from '@/lib/cos';
 import { recordVisit } from '@/lib/visit';
 import { mapWithConcurrency } from '@/lib/utils';
+import { getMediaAccessUrls } from '@/lib/media-url';
 
 type Params = { params: Promise<{ token: string }> };
 
 type MediaRow = {
   id: string;
   key: string;
+  storage?: string | null;
   filename: string;
   title: string | null;
   mimeType: string;
@@ -48,24 +50,11 @@ async function loadShareMedia(share: {
 
 async function buildShareItems(mediaList: MediaRow[]) {
   return mapWithConcurrency(mediaList, SIGN_CONCURRENCY, async (m) => {
-    const isImage = m.mimeType.startsWith('image/');
-    const isVideo = m.mimeType.startsWith('video/');
-
-    const url = await getSignedUrl(m.key, 900);
-    let thumbUrl: string | null = null;
-    if (isImage) {
-      thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
-    } else if (isVideo) {
-      try {
-        thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });
-      } catch {
-        thumbUrl = null;
-      }
-    }
-
+    const { url, thumbUrl, storage } = await getMediaAccessUrls(m, 900);
     return {
       id: m.id,
       key: m.key,
+      storage,
       filename: m.filename,
       title: m.title,
       mimeType: m.mimeType,
