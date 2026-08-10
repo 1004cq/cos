@@ -30,11 +30,14 @@ function createClient(cfg: CosRuntimeConfig, token?: string) {
   });
 }
 
+/** 仅用于「读取/播放」签名；上传 PUT 绝不能换 host，否则会 404 */
 function applyCdnHost(url: string, cdnDomain: string): string {
   if (!cdnDomain) return url;
+  const host = cdnDomain.replace(/^https?:\/\//, '').split('/')[0];
+  if (!host) return url;
   try {
     const u = new URL(url);
-    u.host = cdnDomain;
+    u.host = host;
     return u.toString();
   } catch {
     return url;
@@ -63,7 +66,12 @@ function getObjectUrlWithClient(
       },
       (err, data) => {
         if (err) return reject(err);
-        resolve(applyCdnHost(data.Url, cfg.cdnDomain));
+        let url = data.Url;
+        // 关键：只有 GET 才允许换成 CDN；PUT 必须打 COS 源站
+        if (method === 'GET' && cfg.cdnDomain) {
+          url = applyCdnHost(url, cfg.cdnDomain);
+        }
+        resolve(url);
       }
     );
   });
@@ -74,7 +82,7 @@ export type SignOptions = {
   thumbWidth?: number;
 };
 
-/** 生成上传预签名 URL（PUT） */
+/** 生成上传预签名 URL（PUT）——始终 COS 源站，不使用 CDN 域名 */
 export async function getUploadPresignedUrl(
   key: string,
   contentType: string,
@@ -111,7 +119,7 @@ export async function getUploadPresignedUrl(
   return { url, viaSts: false };
 }
 
-/** 生成访问签名 URL（GET） */
+/** 生成访问签名 URL（GET）——可读时再换 CDN */
 export async function getSignedUrl(
   key: string,
   expires = 1800,
@@ -197,7 +205,6 @@ export async function headObjectSize(key: string): Promise<number | null> {
   });
 }
 
-/** @deprecated 请用 getCosConfig；保留兼容导出 */
 export async function getBucketRegion() {
   const cfg = await loadConfig();
   return { Bucket: cfg.bucket, Region: cfg.region, CDN: cfg.cdnDomain };
