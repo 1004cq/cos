@@ -351,20 +351,6 @@ body::before {
   background: rgba(255, 255, 255, 0.96);
 }
 
-.photos-toolbar {
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid var(--photos-separator);
-}
-
-.photos-toolbar-btn {
-  @apply inline-flex items-center justify-center rounded-xl transition active:opacity-60;
-  min-width: 44px;
-  min-height: 44px;
-  color: #000;
-}
-
 .photos-viewer {
   animation: photos-fade-in 0.2s ease-out;
 }

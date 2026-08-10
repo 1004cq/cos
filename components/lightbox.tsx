@@ -1,16 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ChevronLeft,
-  MoreHorizontal,
-  Share,
-  Heart,
-  Info,
-  SlidersHorizontal,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X } from 'lucide-react';
 import { mediaDisplayTitle } from '@/lib/utils';
 import { formatWeekday, formatTimeOfDay, itemSortDate } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
@@ -52,7 +43,6 @@ export function Lightbox({
 }: Props) {
   const current = items[index];
   const [entered, setEntered] = useState(false);
-  const [liked, setLiked] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [imageScale, setImageScale] = useState(1);
@@ -199,6 +189,18 @@ export function Lightbox({
           >
             分享链接
           </button>
+          {canDelete && onDelete ? (
+            <button
+              type="button"
+              className="w-full text-left px-4 py-2.5 text-[15px] text-red-500 hover:bg-black/5"
+              onClick={() => {
+                setMenuOpen(false);
+                if (confirm('确定删除？')) onDelete(current.id);
+              }}
+            >
+              删除
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -253,46 +255,6 @@ export function Lightbox({
           })}
         </div>
       )}
-
-      <footer className="photos-toolbar shrink-0 flex items-center justify-around px-2 py-1.5 pb-[max(6px,env(safe-area-inset-bottom))] bg-white border-t border-black/[0.06]">
-        <button type="button" className="photos-toolbar-btn" aria-label="分享" onClick={() => void handleShare()}>
-          <Share className="w-[22px] h-[22px]" strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          className="photos-toolbar-btn"
-          aria-label="喜欢"
-          onClick={() => setLiked((v) => !v)}
-        >
-          <Heart
-            className={cn('w-[22px] h-[22px]', liked && 'fill-red-500 text-red-500')}
-            strokeWidth={1.75}
-          />
-        </button>
-        <button
-          type="button"
-          className="photos-toolbar-btn"
-          aria-label="信息"
-          onClick={() => setInfoOpen((v) => !v)}
-        >
-          <Info className="w-[22px] h-[22px]" strokeWidth={1.75} />
-        </button>
-        <button type="button" className="photos-toolbar-btn opacity-35" aria-label="调节" disabled>
-          <SlidersHorizontal className="w-[22px] h-[22px]" strokeWidth={1.75} />
-        </button>
-        {canDelete && onDelete ? (
-          <button
-            type="button"
-            className="photos-toolbar-btn text-red-500"
-            aria-label="删除"
-            onClick={() => {
-              if (confirm('确定删除？')) onDelete(current.id);
-            }}
-          >
-            <Trash2 className="w-[22px] h-[22px]" strokeWidth={1.75} />
-          </button>
-        ) : null}
-      </footer>
     </div>
   );
 }
