@@ -11,6 +11,8 @@ type Props = {
   /** 分享指定媒体 */
   mediaIds?: string[];
   title?: string;
+  /** 创建成功后回调（用于清空多选等） */
+  onCreated?: () => void;
 };
 
 const EXPIRE_OPTIONS = [
@@ -20,7 +22,14 @@ const EXPIRE_OPTIONS = [
   { label: '永久', value: 0 },
 ];
 
-export function ShareCreateDialog({ open, onClose, albumId, mediaIds, title }: Props) {
+export function ShareCreateDialog({
+  open,
+  onClose,
+  albumId,
+  mediaIds,
+  title,
+  onCreated,
+}: Props) {
   const [password, setPassword] = useState('');
   const [expiresIn, setExpiresIn] = useState(7 * 24 * 3600);
   const [saving, setSaving] = useState(false);
@@ -56,6 +65,7 @@ export function ShareCreateDialog({ open, onClose, albumId, mediaIds, title }: P
           ? `${window.location.origin}${data.url}`
           : data.url;
       setCreatedUrl(absolute);
+      onCreated?.();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '创建失败');
     } finally {

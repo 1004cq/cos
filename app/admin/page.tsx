@@ -38,7 +38,7 @@ export default function AdminDashboardPage() {
       try {
         const [statsRes, mediaRes] = await Promise.all([
           fetch('/api/stats'),
-          fetch('/api/media/list?page=1&pageSize=8'),
+          fetch('/api/media/list?page=1&pageSize=8&sort=createdAt'),
         ]);
 
         if (!statsRes.ok) {

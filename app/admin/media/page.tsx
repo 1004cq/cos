@@ -1,7 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { LayoutGrid, List, Search, Trash2, FolderInput, Share2, Check } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  LayoutGrid,
+  List,
+  Search,
+  Trash2,
+  FolderInput,
+  Share2,
+  Save,
+} from 'lucide-react';
 import {
   formatBytes,
   formatDateTime,
@@ -11,6 +19,7 @@ import {
 } from '@/lib/utils';
 import { fetchSignedUrl } from '@/lib/sign-client';
 import { ShareCreateDialog } from '@/components/share-create-dialog';
+import { Lightbox, type LightboxItem } from '@/components/lightbox';
 
 type Album = {
   id: string;
@@ -40,13 +49,20 @@ export default function AdminMediaPage() {
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveAlbumId, setMoveAlbumId] = useState('');
   const [busy, setBusy] = useState(false);
   const [deleteCos, setDeleteCos] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [shareIds, setShareIds] = useState<string[]>([]);
   const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
   const [savingTitleId, setSavingTitleId] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // 翻页/搜索变化时清空选中；列表刷新本身不清空（避免勾选被冲掉）
+  const selectionResetKey = `${page}:${search}`;
+  const prevResetKey = useRef(selectionResetKey);
 
   const loadThumbs = useCallback(async (media: MediaItem[]) => {
     const images = media.filter((m) => m.mimeType.startsWith('image/'));
@@ -61,55 +77,79 @@ export default function AdminMediaPage() {
     setThumbs((prev) => ({ ...prev, ...map }));
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: '24',
-      });
-      if (search) params.set('search', search);
+  const load = useCallback(
+    async (opts?: { clearSelection?: boolean }) => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: '24',
+          sort: 'createdAt',
+        });
+        if (search) params.set('search', search);
 
-      const [mediaRes, albumsRes] = await Promise.all([
-        fetch(`/api/media/list?${params}`),
-        fetch('/api/albums'),
-      ]);
+        const [mediaRes, albumsRes] = await Promise.all([
+          fetch(`/api/media/list?${params}`),
+          fetch('/api/albums'),
+        ]);
 
-      if (!mediaRes.ok) {
-        const data = await mediaRes.json().catch(() => ({}));
-        throw new Error(data.error || '加载媒体失败');
+        if (!mediaRes.ok) {
+          const data = await mediaRes.json().catch(() => ({}));
+          throw new Error(data.error || '加载媒体失败');
+        }
+        if (!albumsRes.ok) {
+          const data = await albumsRes.json().catch(() => ({}));
+          throw new Error(data.error || '加载相册失败');
+        }
+
+        const mediaData = await mediaRes.json();
+        const albumData: Album[] = await albumsRes.json();
+
+        const list: MediaItem[] = mediaData.items ?? [];
+        setItems(list);
+        setTotal(mediaData.total ?? 0);
+        setTotalPages(mediaData.totalPages ?? 1);
+        setAlbums(albumData);
+
+        if (opts?.clearSelection) {
+          setSelected(new Set());
+        } else {
+          // 仅保留仍存在于当前页的选中 id，避免「已勾选但提交无效」
+          const alive = new Set(list.map((m) => m.id));
+          setSelected((prev) => {
+            const next = new Set<string>();
+            for (const id of prev) {
+              if (alive.has(id)) next.add(id);
+            }
+            return next;
+          });
+        }
+
+        const drafts: Record<string, string> = {};
+        for (const m of list) {
+          drafts[m.id] = m.title ?? '';
+        }
+        setTitleDrafts(drafts);
+        void loadThumbs(list);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : '加载失败');
+      } finally {
+        setLoading(false);
       }
-      if (!albumsRes.ok) {
-        const data = await albumsRes.json().catch(() => ({}));
-        throw new Error(data.error || '加载相册失败');
-      }
-
-      const mediaData = await mediaRes.json();
-      const albumData: Album[] = await albumsRes.json();
-
-      const list: MediaItem[] = mediaData.items ?? [];
-      setItems(list);
-      setTotal(mediaData.total ?? 0);
-      setTotalPages(mediaData.totalPages ?? 1);
-      setAlbums(albumData);
-      setSelected(new Set());
-      const drafts: Record<string, string> = {};
-      for (const m of list) {
-        drafts[m.id] = m.title ?? '';
-      }
-      setTitleDrafts(drafts);
-      void loadThumbs(list);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '加载失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, loadThumbs]);
+    },
+    [page, search, loadThumbs]
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const shouldClear = prevResetKey.current !== selectionResetKey;
+    prevResetKey.current = selectionResetKey;
+    void load({ clearSelection: shouldClear });
+  }, [load, selectionResetKey]);
+
+  const pageIds = useMemo(() => items.map((i) => i.id), [items]);
+  const allPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selected.has(id));
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -121,15 +161,32 @@ export default function AdminMediaPage() {
   }
 
   function toggleSelectAll() {
-    if (selected.size === items.length) {
-      setSelected(new Set());
+    if (allPageSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of pageIds) next.delete(id);
+        return next;
+      });
     } else {
-      setSelected(new Set(items.map((i) => i.id)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of pageIds) next.add(id);
+        return next;
+      });
     }
   }
 
+  /** 提交时快照当前选中，并过滤到仍存在的媒体 id */
+  function snapshotSelectedIds(): string[] {
+    const alive = new Set(items.map((m) => m.id));
+    return Array.from(selected).filter((id) => alive.has(id));
+  }
+
   async function handleBatchDelete(ids: string[]) {
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      setError('请先勾选要删除的媒体');
+      return;
+    }
     const tip = deleteCos
       ? `确定删除 ${ids.length} 项媒体？将先删除 COS 对象，失败则中止。`
       : `确定删除 ${ids.length} 项媒体？仅删除数据库记录。`;
@@ -137,6 +194,7 @@ export default function AdminMediaPage() {
 
     setBusy(true);
     setError('');
+    setSuccessMsg('');
     try {
       const res = await fetch('/api/media/batch', {
         method: 'POST',
@@ -149,7 +207,9 @@ export default function AdminMediaPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '删除失败');
-      await load();
+      setSelected(new Set());
+      setSuccessMsg(`已删除 ${data.count ?? ids.length} 项`);
+      await load({ clearSelection: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '删除失败');
     } finally {
@@ -158,9 +218,9 @@ export default function AdminMediaPage() {
   }
 
   async function handleBatchMove() {
-    const ids = Array.from(selected);
+    const ids = snapshotSelectedIds();
     if (ids.length === 0) {
-      setError('请先选择媒体');
+      setError('请先勾选要移动的媒体');
       return;
     }
 
@@ -171,6 +231,7 @@ export default function AdminMediaPage() {
 
     setBusy(true);
     setError('');
+    setSuccessMsg('');
     try {
       const res = await fetch('/api/media/batch', {
         method: 'POST',
@@ -183,12 +244,24 @@ export default function AdminMediaPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '移动失败');
-      await load();
+      setSelected(new Set());
+      setSuccessMsg(`已移动 ${data.count ?? ids.length} 项至「${albumLabel}」`);
+      await load({ clearSelection: true });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '移动失败');
     } finally {
       setBusy(false);
     }
+  }
+
+  function openShareSelected() {
+    const ids = snapshotSelectedIds();
+    if (ids.length === 0) {
+      setError('请先勾选要分享的媒体');
+      return;
+    }
+    setShareIds(ids);
+    setShareOpen(true);
   }
 
   function onSearchSubmit(e: React.FormEvent) {
@@ -201,6 +274,7 @@ export default function AdminMediaPage() {
     const next = (titleDrafts[id] ?? '').trim();
     setSavingTitleId(id);
     setError('');
+    setSuccessMsg('');
     try {
       const res = await fetch(`/api/media/${id}`, {
         method: 'PATCH',
@@ -213,6 +287,7 @@ export default function AdminMediaPage() {
         prev.map((m) => (m.id === id ? { ...m, title: data.title ?? null } : m))
       );
       setTitleDrafts((prev) => ({ ...prev, [id]: data.title ?? '' }));
+      setSuccessMsg('标题已保存');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存标题失败');
     } finally {
@@ -220,13 +295,33 @@ export default function AdminMediaPage() {
     }
   }
 
+  const lightboxItems: LightboxItem[] = useMemo(
+    () =>
+      items.map((m) => ({
+        id: m.id,
+        url: thumbs[m.id] || '',
+        key: m.key,
+        filename: m.filename,
+        title: m.title,
+        mimeType: m.mimeType,
+      })),
+    [items, thumbs]
+  );
+
+  function openPreview(id: string) {
+    const idx = items.findIndex((m) => m.id === id);
+    if (idx >= 0) setLightboxIndex(idx);
+  }
+
+  const selectedCount = selected.size;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">媒体库</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            共 {total} 项 · 多选后可批量移入相册、删除或生成分享
+            共 {total} 项 · 勾选复选框多选；点击缩略图预览 · 批量操作见下方工具条
           </p>
         </div>
         <div className="flex gap-1 rounded-xl glass p-1">
@@ -263,7 +358,7 @@ export default function AdminMediaPage() {
           />
           <input
             className="input-glass !pl-10"
-            placeholder="搜索文件名..."
+            placeholder="搜索文件名或标题..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -277,14 +372,14 @@ export default function AdminMediaPage() {
         <label className="flex items-center gap-1.5 text-sm cursor-pointer">
           <input
             type="checkbox"
-            checked={items.length > 0 && selected.size === items.length}
+            checked={allPageSelected}
             onChange={toggleSelectAll}
             disabled={items.length === 0}
           />
           全选本页
         </label>
         <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          已选 {selected.size}
+          已选 {selectedCount}
         </span>
         <select
           className="input-glass !w-auto !py-2 text-sm"
@@ -300,7 +395,7 @@ export default function AdminMediaPage() {
         </select>
         <button
           type="button"
-          disabled={busy || selected.size === 0}
+          disabled={busy || selectedCount === 0}
           onClick={() => void handleBatchMove()}
           className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
         >
@@ -309,8 +404,8 @@ export default function AdminMediaPage() {
         </button>
         <button
           type="button"
-          disabled={busy || selected.size === 0}
-          onClick={() => setShareOpen(true)}
+          disabled={busy || selectedCount === 0}
+          onClick={openShareSelected}
           className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
         >
           <Share2 className="w-4 h-4" />
@@ -326,8 +421,8 @@ export default function AdminMediaPage() {
         </label>
         <button
           type="button"
-          disabled={busy || selected.size === 0}
-          onClick={() => void handleBatchDelete(Array.from(selected))}
+          disabled={busy || selectedCount === 0}
+          onClick={() => void handleBatchDelete(snapshotSelectedIds())}
           className="btn-ghost !py-2 text-sm inline-flex items-center gap-1.5 text-red-600 disabled:opacity-50"
         >
           <Trash2 className="w-4 h-4" />
@@ -337,6 +432,9 @@ export default function AdminMediaPage() {
 
       {error && (
         <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600">{error}</div>
+      )}
+      {successMsg && (
+        <div className="rounded-2xl glass px-4 py-3 text-sm text-green-700">{successMsg}</div>
       )}
 
       {loading ? (
@@ -353,43 +451,52 @@ export default function AdminMediaPage() {
             const isVideo = item.mimeType.startsWith('video/');
             const checked = selected.has(item.id);
             return (
-              <label
+              <div
                 key={item.id}
-                className={cn(
-                  'media-tile cursor-pointer block',
-                  checked && 'ring-2 ring-blue-500'
-                )}
+                className={cn('media-tile relative', checked && 'ring-2 ring-blue-500')}
               >
                 <input
                   type="checkbox"
-                  className="absolute top-2 left-2 z-10 w-4 h-4"
+                  className="absolute top-2 left-2 z-20 w-4 h-4 cursor-pointer"
                   checked={checked}
-                  onChange={() => toggleSelect(item.id)}
+                  aria-label={`选择 ${item.filename}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(item.id);
+                  }}
                 />
-                {isVideo ? (
-                  <div
-                    className="w-full h-full flex items-center justify-center"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    ▶
+                <button
+                  type="button"
+                  className="absolute inset-0 z-10 w-full h-full text-left"
+                  onClick={() => openPreview(item.id)}
+                  aria-label={`预览 ${mediaDisplayTitle(item.title, item.filename)}`}
+                >
+                  {isVideo ? (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      ▶
+                    </div>
+                  ) : thumbs[item.id] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={thumbs[item.id]} alt={item.filename} loading="lazy" />
+                  ) : (
+                    <div
+                      className="w-full h-full flex items-center justify-center text-xs"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      …
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/40 to-transparent pointer-events-none">
+                    <p className="text-white text-xs truncate">
+                      {mediaDisplayTitle(item.title, item.filename)}
+                    </p>
                   </div>
-                ) : thumbs[item.id] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={thumbs[item.id]} alt={item.filename} loading="lazy" />
-                ) : (
-                  <div
-                    className="w-full h-full flex items-center justify-center text-xs"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    …
-                  </div>
-                )}
-                <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/40 to-transparent">
-                  <p className="text-white text-xs truncate">
-                    {mediaDisplayTitle(item.title, item.filename)}
-                  </p>
-                </div>
-              </label>
+                </button>
+              </div>
             );
           })}
         </div>
@@ -399,19 +506,30 @@ export default function AdminMediaPage() {
             const draft = titleDrafts[item.id] ?? '';
             const dirty = draft.trim() !== (item.title ?? '').trim();
             return (
-              <li key={item.id} className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 text-sm">
+              <li
+                key={item.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 text-sm"
+              >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <input
                     type="checkbox"
                     checked={selected.has(item.id)}
-                    onChange={() => toggleSelect(item.id)}
+                    aria-label={`选择 ${item.filename}`}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleSelect(item.id);
+                    }}
                   />
-                  <span
-                    className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center text-xs shrink-0"
+                  <button
+                    type="button"
+                    className="w-8 h-8 rounded-lg bg-white/60 flex items-center justify-center text-xs shrink-0 hover:bg-white/90"
                     style={{ color: 'var(--text-muted)' }}
+                    onClick={() => openPreview(item.id)}
+                    aria-label="预览"
                   >
                     {item.mimeType.startsWith('video/') ? '▶' : '图'}
-                  </span>
+                  </button>
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="truncate text-xs" style={{ color: 'var(--text-muted)' }}>
                       文件名：{item.filename}
@@ -433,10 +551,10 @@ export default function AdminMediaPage() {
                         disabled={busy || savingTitleId === item.id || !dirty}
                         onClick={() => void saveTitle(item.id)}
                         className="btn-ghost !py-1.5 !px-2 text-xs inline-flex items-center gap-1 disabled:opacity-40"
-                        title="保存标题"
+                        title="保存标题（与多选无关）"
                       >
-                        <Check className="w-3.5 h-3.5" />
-                        保存
+                        <Save className="w-3.5 h-3.5" />
+                        保存标题
                       </button>
                     </div>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
@@ -490,10 +608,26 @@ export default function AdminMediaPage() {
 
       <ShareCreateDialog
         open={shareOpen}
-        onClose={() => setShareOpen(false)}
-        mediaIds={Array.from(selected)}
-        title={`分享已选 ${selected.size} 项`}
+        onClose={() => {
+          setShareOpen(false);
+          setShareIds([]);
+        }}
+        mediaIds={shareIds}
+        title={`分享已选 ${shareIds.length} 项`}
+        onCreated={() => {
+          setSelected(new Set());
+          setSuccessMsg('分享已创建');
+        }}
       />
+
+      {lightboxIndex !== null && lightboxItems.length > 0 && (
+        <Lightbox
+          items={lightboxItems}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onChange={setLightboxIndex}
+        />
+      )}
     </div>
   );
 }

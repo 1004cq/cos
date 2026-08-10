@@ -24,6 +24,8 @@ export async function GET(req: NextRequest) {
     const albumId = searchParams.get('albumId');
     const search = searchParams.get('search');
     const tag = searchParams.get('tag');
+    // admin 媒体库默认按入库时间，避免刚上传项因 takenAt 靠后「看不见」
+    const sort = searchParams.get('sort');
 
     const where: any = {};
 
@@ -42,11 +44,16 @@ export async function GET(req: NextRequest) {
       where.tags = { has: tag };
     }
 
+    const orderBy =
+      sort === 'createdAt'
+        ? [{ createdAt: 'desc' as const }]
+        : [{ takenAt: 'desc' as const }, { createdAt: 'desc' as const }];
+
     const [total, items] = await Promise.all([
       prisma.media.count({ where }),
       prisma.media.findMany({
         where,
-        orderBy: [{ takenAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

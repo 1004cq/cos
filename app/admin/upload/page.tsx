@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, CheckCircle2 } from 'lucide-react';
 import {
   LARGE_UPLOAD_BYTES,
   formatBytes,
@@ -20,6 +20,8 @@ interface UploadItem {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   key?: string;
+  /** 数据库 Media.id（入库成功后） */
+  mediaId?: string;
   /** 本地 File.size */
   localSize: number;
   /** 入库 Media.size（优先 COS Content-Length） */
@@ -38,8 +40,8 @@ function makeId() {
 }
 
 /**
- * 原文件字节直传 COS（预签名 PUT）。
- * 禁止 canvas / ffmpeg / 前端重编码；超大文件后续可加 multipart（仍无损）。
+ * 原文件字节直传 COS（预签名 PUT），成功后自动 POST /api/media 入库。
+ * 禁止 canvas / ffmpeg / 前端重编码。
  */
 export default function UploadPage() {
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -48,6 +50,11 @@ export default function UploadPage() {
   const [albumId, setAlbumId] = useState('');
   const [albumsError, setAlbumsError] = useState('');
   const [largeHint, setLargeHint] = useState(false);
+
+  const itemsRef = useRef(items);
+  const albumIdRef = useRef(albumId);
+  itemsRef.current = items;
+  albumIdRef.current = albumId;
 
   useEffect(() => {
     async function loadAlbums() {
@@ -70,8 +77,12 @@ export default function UploadPage() {
   }, []);
 
   const uploadOne = useCallback(
-    async (item: UploadItem) => {
-      updateItem(item.id, {
+    async (queueId: string) => {
+      const snapshot = itemsRef.current.find((i) => i.id === queueId);
+      if (!snapshot) return;
+      if (snapshot.status === 'uploading' || snapshot.status === 'success') return;
+
+      updateItem(queueId, {
         status: 'uploading',
         progress: 0,
         error: undefined,
@@ -79,16 +90,17 @@ export default function UploadPage() {
       });
 
       const contentType =
-        item.contentType || resolveUploadContentType(item.file.name, item.file.type);
+        snapshot.contentType ||
+        resolveUploadContentType(snapshot.file.name, snapshot.file.type);
 
       try {
         const presignRes = await fetch('/api/upload/presign', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            filename: item.file.name,
+            filename: snapshot.file.name,
             contentType,
-            size: item.file.size,
+            size: snapshot.file.size,
           }),
         });
 
@@ -108,7 +120,7 @@ export default function UploadPage() {
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
               const progress = Math.round((e.loaded / e.total) * 100);
-              updateItem(item.id, { progress, status: 'uploading' });
+              updateItem(queueId, { progress, status: 'uploading' });
             }
           };
 
@@ -117,19 +129,21 @@ export default function UploadPage() {
             else reject(new Error(`上传失败: ${xhr.status}`));
           };
           xhr.onerror = () => reject(new Error('网络错误'));
-          xhr.send(item.file);
+          xhr.send(snapshot.file);
         });
 
-        const title = item.title.trim();
+        // 入库前再读一次标题（用户可能在 pending 时改过）
+        const latest = itemsRef.current.find((i) => i.id === queueId);
+        const title = (latest?.title ?? snapshot.title).trim();
         const mediaRes = await fetch('/api/media', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             key,
-            filename: item.file.name,
+            filename: snapshot.file.name,
             mimeType: putType,
-            size: item.file.size,
-            albumId: albumId || null,
+            size: snapshot.file.size,
+            albumId: albumIdRef.current || null,
             ...(title ? { title } : {}),
           }),
         });
@@ -140,23 +154,24 @@ export default function UploadPage() {
         }
 
         const media = await mediaRes.json();
-        updateItem(item.id, {
+        updateItem(queueId, {
           progress: 100,
           status: 'success',
           key,
+          mediaId: media.id,
           contentType: putType,
           storedSize: media.size,
           cosSize: media.cosSize,
           sizeMismatch: Boolean(media.sizeMismatch),
         });
       } catch (err: unknown) {
-        updateItem(item.id, {
+        updateItem(queueId, {
           status: 'error',
           error: err instanceof Error ? err.message : '上传失败',
         });
       }
     },
-    [albumId, updateItem]
+    [updateItem]
   );
 
   const addFiles = useCallback((files: File[]) => {
@@ -203,7 +218,7 @@ export default function UploadPage() {
       };
     });
 
-    // 先入队填写标题，再手动开始上传
+    // 入队后可填标题，再点「开始上传」；COS 成功后自动入库，无需再点确认
     setItems((prev) => [...prev, ...newItems]);
   }, []);
 
@@ -240,15 +255,16 @@ export default function UploadPage() {
   const successCount = items.filter((i) => i.status === 'success').length;
   const errorCount = items.filter((i) => i.status === 'error').length;
   const pendingCount = items.filter((i) => i.status === 'pending').length;
+  const uploadingCount = items.filter((i) => i.status === 'uploading').length;
 
   function startUpload(ids: string[]) {
     const idSet = new Set(ids);
-    items
+    itemsRef.current
       .filter(
         (i) => idSet.has(i.id) && (i.status === 'pending' || i.status === 'error')
       )
       .forEach((item) => {
-        void uploadOne(item);
+        void uploadOne(item.id);
       });
   }
 
@@ -258,12 +274,19 @@ export default function UploadPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">上传</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            预签名直传 COS · 原画质字节级保存 · 可为视频填写标题
+            预签名直传 COS · 成功后自动入库 · 无需再点确认
           </p>
         </div>
-        <Link href="/" className="btn-ghost text-sm">
-          查看图库
-        </Link>
+        <div className="flex gap-2">
+          {successCount > 0 && (
+            <Link href="/admin/media" className="btn-primary text-sm">
+              查看媒体库（{successCount}）
+            </Link>
+          )}
+          <Link href="/" className="btn-ghost text-sm">
+            查看图库
+          </Link>
+        </div>
       </div>
 
       <div className="rounded-2xl glass p-4 space-y-2 text-sm">
@@ -288,6 +311,7 @@ export default function UploadPage() {
           className="input-glass"
           value={albumId}
           onChange={(e) => setAlbumId(e.target.value)}
+          disabled={uploadingCount > 0}
         >
           <option value="">不归入相册</option>
           {albums.map((a) => (
@@ -298,7 +322,7 @@ export default function UploadPage() {
         </select>
         {albumsError && <p className="text-xs text-red-500">{albumsError}</p>}
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          选择文件后可填写标题（可选），再点击开始上传；filename 仍保留原文件名。
+          选择文件 → 可选填标题 → 点「开始上传」；上传成功即写入媒体库，不必再点勾选确认。
         </p>
       </div>
 
@@ -342,7 +366,8 @@ export default function UploadPage() {
             style={{ color: 'var(--text-muted)' }}
           >
             <span>
-              完成 {successCount} · 失败 {errorCount} · 等待 {pendingCount} · 共 {items.length}
+              已入库 {successCount} · 上传中 {uploadingCount} · 失败 {errorCount} · 等待{' '}
+              {pendingCount} · 共 {items.length}
             </span>
             <div className="flex gap-2">
               {pendingCount > 0 && (
@@ -399,22 +424,30 @@ export default function UploadPage() {
                   </div>
                   <div className="w-36 text-right text-sm shrink-0">
                     {item.status === 'uploading' && (
-                      <div className="h-2 rounded-full overflow-hidden bg-white/50">
-                        <div
-                          className="h-full bg-blue-500 transition-all"
-                          style={{ width: `${item.progress}%` }}
-                        />
+                      <div className="space-y-1">
+                        <div className="h-2 rounded-full overflow-hidden bg-white/50">
+                          <div
+                            className="h-full bg-blue-500 transition-all"
+                            style={{ width: `${item.progress}%` }}
+                          />
+                        </div>
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {item.progress}%
+                        </p>
                       </div>
                     )}
                     {item.status === 'success' && (
-                      <span className="text-green-600">完成</span>
+                      <span className="text-green-600 inline-flex items-center gap-1 justify-end">
+                        <CheckCircle2 className="w-4 h-4" />
+                        已入库
+                      </span>
                     )}
                     {item.status === 'error' && (
                       <div className="space-y-1">
                         <p className="text-red-500 text-xs break-all">{item.error}</p>
                         <button
                           type="button"
-                          onClick={() => void uploadOne(item)}
+                          onClick={() => void uploadOne(item.id)}
                           className="text-blue-600 text-xs hover:underline inline-flex items-center gap-0.5"
                         >
                           <RotateCcw className="w-3 h-3" />
@@ -426,9 +459,9 @@ export default function UploadPage() {
                       <button
                         type="button"
                         className="btn-primary !py-1.5 !px-3 text-xs"
-                        onClick={() => void uploadOne(item)}
+                        onClick={() => void uploadOne(item.id)}
                       >
-                        上传
+                        开始上传
                       </button>
                     )}
                   </div>
