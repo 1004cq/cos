@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, MoreHorizontal, Play, X } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal, X } from 'lucide-react';
 import { mediaDisplayTitle } from '@/lib/utils';
 import { formatWeekday, formatTimeOfDay, itemSortDate } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
 import { PhotoViewerCarousel } from '@/components/photo-viewer-carousel';
 import { PhotoViewerVideoBar } from '@/components/photo-viewer-video-bar';
+import { MediaCover } from '@/components/media-cover';
 
 export type LightboxItem = {
   id: string;
@@ -18,39 +19,37 @@ export type LightboxItem = {
   width?: number | null;
   height?: number | null;
   thumbUrl?: string | null;
+  posterUrl?: string | null;
   takenAt?: string | null;
   createdAt?: string;
   duration?: number | null;
 };
 
-function FilmstripThumb({ src, isVideo }: { src?: string | null; isVideo?: boolean }) {
-  const [failed, setFailed] = useState(!src);
-
-  useEffect(() => {
-    setFailed(!src);
-  }, [src]);
-
-  if (!src || failed) {
-    return (
-      <div className="w-full h-full bg-[#E5E5EA] flex items-center justify-center" aria-hidden>
-        {isVideo ? (
-          <Play className="w-4 h-4 text-[#8E8E93]" fill="currentColor" strokeWidth={0} />
-        ) : null}
-      </div>
-    );
-  }
-
+function FilmstripThumb({
+  id,
+  src,
+  posterUrl,
+  videoUrl,
+  isVideo,
+}: {
+  id: string;
+  src?: string | null;
+  posterUrl?: string | null;
+  videoUrl?: string | null;
+  isVideo?: boolean;
+}) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt=""
-      loading="lazy"
-      decoding="async"
-      className="w-full h-full object-cover bg-[#E5E5EA]"
-      draggable={false}
-      onError={() => setFailed(true)}
-    />
+    <div className="relative w-full h-full">
+      <MediaCover
+        id={`strip-${id}`}
+        posterUrl={posterUrl}
+        thumbUrl={src}
+        videoUrl={isVideo ? videoUrl : null}
+        isVideo={isVideo}
+        showPlayBadge={isVideo}
+        compact
+      />
+    </div>
   );
 }
 
@@ -342,7 +341,7 @@ export function Lightbox({
           >
             {items.map((item, i) => {
               const itemVideo = item.mimeType.startsWith('video/');
-              const thumb = item.thumbUrl || (itemVideo ? null : item.url);
+              const thumb = item.posterUrl || item.thumbUrl || (itemVideo ? null : item.url);
               const active = i === index;
               return (
                 <button
@@ -357,7 +356,13 @@ export function Lightbox({
                       : 'border-transparent opacity-55'
                   )}
                 >
-                  <FilmstripThumb src={thumb} isVideo={itemVideo} />
+                  <FilmstripThumb
+                    id={item.id}
+                    src={thumb}
+                    posterUrl={item.posterUrl}
+                    videoUrl={itemVideo ? item.url : null}
+                    isVideo={itemVideo}
+                  />
                 </button>
               );
             })}

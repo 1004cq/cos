@@ -9,6 +9,7 @@ import {
   isVideoFilenameOrMime,
   resolveUploadContentType,
 } from '@/lib/media-type';
+import { capturePosterBlobFromFile } from '@/lib/video-poster';
 
 interface UploadItem {
   id: string;
@@ -154,6 +155,46 @@ export default function UploadPage() {
         }
 
         const media = await mediaRes.json();
+
+        // 视频：尽量截帧上传海报（失败不影响主文件入库成功）
+        if (
+          media.id &&
+          (putType.startsWith('video/') || isVideoFilenameOrMime(snapshot.file.name, putType))
+        ) {
+          try {
+            const posterBlob = await capturePosterBlobFromFile(snapshot.file);
+            if (posterBlob && posterBlob.size > 0) {
+              const posterName = `${snapshot.file.name.replace(/\.[^.]+$/, '') || 'video'}-poster.jpg`;
+              const posterPresign = await fetch('/api/upload/presign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: posterName,
+                  contentType: 'image/jpeg',
+                  size: posterBlob.size,
+                }),
+              });
+              if (posterPresign.ok) {
+                const { url: posterPutUrl, key: posterKey } = await posterPresign.json();
+                const putOk = await fetch(posterPutUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'image/jpeg' },
+                  body: posterBlob,
+                });
+                if (putOk.ok && typeof posterKey === 'string') {
+                  await fetch(`/api/media/${media.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ posterKey }),
+                  });
+                }
+              }
+            }
+          } catch (posterErr) {
+            console.warn('video poster upload skipped:', posterErr);
+          }
+        }
+
         updateItem(queueId, {
           progress: 100,
           status: 'success',

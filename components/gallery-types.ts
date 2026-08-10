@@ -3,6 +3,7 @@ import type { LightboxItem } from '@/components/lightbox';
 export type GalleryItem = LightboxItem & {
   key: string;
   thumbUrl?: string | null;
+  posterUrl?: string | null;
   kind: 'image' | 'video' | 'other';
   takenAt?: string | null;
   createdAt: string;

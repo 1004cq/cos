@@ -12,6 +12,7 @@ type Params = { params: Promise<{ token: string }> };
 type MediaRow = {
   id: string;
   key: string;
+  posterKey: string | null;
   filename: string;
   title: string | null;
   mimeType: string;
@@ -52,7 +53,17 @@ async function buildShareItems(mediaList: MediaRow[]) {
     const isVideo = m.mimeType.startsWith('video/');
 
     const url = await getSignedUrl(m.key, 900);
+    let posterUrl: string | null = null;
     let thumbUrl: string | null = null;
+
+    if (m.posterKey && m.posterKey.startsWith('media/')) {
+      try {
+        posterUrl = await getSignedUrl(m.posterKey, 900);
+      } catch {
+        posterUrl = null;
+      }
+    }
+
     if (isImage) {
       try {
         thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
@@ -60,10 +71,14 @@ async function buildShareItems(mediaList: MediaRow[]) {
         thumbUrl = null;
       }
     } else if (isVideo) {
-      try {
-        thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });
-      } catch {
-        thumbUrl = null;
+      if (posterUrl) {
+        thumbUrl = posterUrl;
+      } else {
+        try {
+          thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });
+        } catch {
+          thumbUrl = null;
+        }
       }
     }
 
@@ -80,6 +95,7 @@ async function buildShareItems(mediaList: MediaRow[]) {
       takenAt: m.takenAt,
       url,
       thumbUrl,
+      posterUrl,
     };
   });
 }

@@ -21,7 +21,7 @@ type SlideProps = {
 
 function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: SlideProps) {
   const isVideo = item.mimeType.startsWith('video/');
-  const thumbUrl = item.thumbUrl || null;
+  const thumbUrl = item.posterUrl || item.thumbUrl || null;
   const fullUrl = item.url || '';
   const [displayUrl, setDisplayUrl] = useState(thumbUrl || fullUrl);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(() =>
@@ -29,6 +29,8 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   );
   const [showSpinner, setShowSpinner] = useState(!thumbUrl && Boolean(fullUrl));
   const [posterFailed, setPosterFailed] = useState(false);
+  const [needBigPlay, setNeedBigPlay] = useState(false);
+  const [showUnmute, setShowUnmute] = useState(false);
   const lastTapRef = useRef(0);
   const pinchStartScale = useRef(1);
 
@@ -122,24 +124,128 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
     lastTapRef.current = now;
   }
 
+  useEffect(() => {
+    if (!isVideo || !active) {
+      setNeedBigPlay(false);
+      setShowUnmute(false);
+      return;
+    }
+
+    setNeedBigPlay(false);
+    const v = videoRef?.current;
+    if (!v) return;
+
+    let cancelled = false;
+    v.muted = true;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.setAttribute('webkit-playsinline', '');
+    setShowUnmute(true);
+
+    const syncMuteChip = () => {
+      if (!cancelled) setShowUnmute(v.muted);
+    };
+    const onPlaying = () => {
+      if (!cancelled) setNeedBigPlay(false);
+    };
+
+    let onReady: (() => void) | null = null;
+
+    const tryPlay = async () => {
+      if (cancelled) return;
+      try {
+        await v.play();
+        if (cancelled) return;
+        setNeedBigPlay(false);
+      } catch {
+        if (cancelled) return;
+        setNeedBigPlay(true);
+      }
+    };
+
+    if (v.readyState >= 2) {
+      void tryPlay();
+    } else {
+      onReady = () => {
+        if (onReady) v.removeEventListener('loadeddata', onReady);
+        void tryPlay();
+      };
+      v.addEventListener('loadeddata', onReady);
+    }
+
+    v.addEventListener('playing', onPlaying);
+    v.addEventListener('volumechange', syncMuteChip);
+
+    return () => {
+      cancelled = true;
+      if (onReady) v.removeEventListener('loadeddata', onReady);
+      v.removeEventListener('playing', onPlaying);
+      v.removeEventListener('volumechange', syncMuteChip);
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [isVideo, active, item.id, fullUrl, videoRef]);
+
   if (isVideo) {
     return (
-      <div
-        className="photos-viewer-slide relative w-full h-full bg-black"
-      >
+      <div className="photos-viewer-slide relative w-full h-full bg-black">
         {active ? (
-          <video
-            ref={videoRef}
-            src={fullUrl || undefined}
-            poster={!posterFailed && thumbUrl ? thumbUrl : undefined}
-            playsInline
-            preload="metadata"
-            controls={false}
-            controlsList="nodownload noplaybackrate noremoteplayback"
-            disablePictureInPicture
-            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
-            onContextMenu={blockSave}
-          />
+          <>
+            <video
+              ref={videoRef}
+              src={fullUrl || undefined}
+              poster={!posterFailed && thumbUrl ? thumbUrl : undefined}
+              playsInline
+              preload="metadata"
+              controls={false}
+              controlsList="nodownload noplaybackrate noremoteplayback"
+              disablePictureInPicture
+              className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain"
+              onContextMenu={blockSave}
+            />
+            {needBigPlay && (
+              <button
+                type="button"
+                className="absolute inset-0 z-[2] flex items-center justify-center bg-black/25"
+                aria-label="播放"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const el = videoRef?.current;
+                  if (!el) return;
+                  el.muted = true;
+                  setShowUnmute(true);
+                  void el.play().then(
+                    () => setNeedBigPlay(false),
+                    () => setNeedBigPlay(true)
+                  );
+                }}
+              >
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+                  <svg viewBox="0 0 24 24" className="ml-1 h-8 w-8 fill-current" aria-hidden>
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </span>
+              </button>
+            )}
+            {showUnmute && !needBigPlay && (
+              <button
+                type="button"
+                className="absolute bottom-[22%] right-4 z-[2] rounded-full bg-black/55 px-3 py-1.5 text-xs text-white/95 backdrop-blur-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const el = videoRef?.current;
+                  if (!el) return;
+                  el.muted = false;
+                  setShowUnmute(false);
+                }}
+              >
+                取消静音
+              </button>
+            )}
+          </>
         ) : thumbUrl && !posterFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -263,16 +369,7 @@ export function PhotoViewerCarousel({
   useEffect(() => {
     setDragX(0);
     onScaleChange(1);
-    const v = videoRef.current;
-    if (v) {
-      v.pause();
-      try {
-        v.currentTime = 0;
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [index, onScaleChange, videoRef]);
+  }, [index, onScaleChange]);
 
   const commit = useCallback(
     (nextIndex: number, animateTo: number) => {

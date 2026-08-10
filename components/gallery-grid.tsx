@@ -1,51 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Check, Play } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDuration } from '@/lib/gallery-format';
 import { isCompactGrid, showTinyDuration } from '@/lib/gallery-density';
 import type { GalleryItem } from '@/components/gallery-types';
-
-function GridThumb({
-  src,
-  isVideo,
-}: {
-  src?: string | null;
-  isVideo?: boolean;
-}) {
-  const [failed, setFailed] = useState(false);
-  const showImg = Boolean(src) && !failed;
-
-  useEffect(() => {
-    setFailed(false);
-  }, [src]);
-
-  if (showImg) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={src!}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className="absolute inset-0 w-full h-full object-cover bg-[#E5E5EA]"
-        draggable={false}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-
-  if (isVideo) {
-    return (
-      <div className="absolute inset-0 bg-[#E5E5EA] flex items-center justify-center">
-        <Play className="w-[36%] h-[36%] text-[#8E8E93]" fill="currentColor" strokeWidth={0} />
-      </div>
-    );
-  }
-
-  return <div className="absolute inset-0 bg-[#E5E5EA]" aria-hidden />;
-}
+import { MediaCover } from '@/components/media-cover';
 
 function GridCell({
   item,
@@ -65,8 +26,8 @@ function GridCell({
   const isVideo = item.kind === 'video' || item.mimeType.startsWith('video/');
   const compact = isCompactGrid(columns);
   const tinyDuration = showTinyDuration(columns);
-  /** 网格只允许 COS 缩略 / 视频封面，禁止原图与整段视频 */
-  const thumbSrc = item.thumbUrl || null;
+  /** 有 poster/thumb 时优先静态图；失败或缺失时用签名视频 URL 截首帧（preload=metadata） */
+  const videoPreviewUrl = isVideo ? item.url : null;
 
   function handleClick() {
     if (selectMode) onToggleSelect();
@@ -85,10 +46,17 @@ function GridCell({
       aria-label={item.filename}
       aria-pressed={selectMode ? selected : undefined}
     >
-      <GridThumb src={thumbSrc} isVideo={isVideo} />
+      <MediaCover
+        id={item.id}
+        posterUrl={item.posterUrl}
+        thumbUrl={isVideo ? item.thumbUrl : item.thumbUrl || null}
+        videoUrl={videoPreviewUrl}
+        isVideo={isVideo}
+        showPlayBadge={isVideo}
+      />
 
-      {isVideo && item.duration != null && !compact && (
-        <span className={cn('photos-duration', tinyDuration && 'photos-duration-tiny')}>
+      {isVideo && item.duration != null && (
+        <span className={cn('photos-duration', (tinyDuration || compact) && 'photos-duration-tiny')}>
           {formatDuration(item.duration)}
         </span>
       )}
@@ -127,7 +95,6 @@ type Props = {
   onOpen: (item: GalleryItem) => void;
   onSectionVisible?: (sectionKey: string) => void;
   showInlineHeaders?: boolean;
-  /** 捏合过程中显示分组浮层标题 */
   showOverlayHeaders?: boolean;
 };
 

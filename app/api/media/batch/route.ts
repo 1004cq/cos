@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (action === 'delete') {
       const mediaList = await prisma.media.findMany({
         where: { id: { in: ids } },
-        select: { id: true, key: true },
+        select: { id: true, key: true, posterKey: true },
       });
 
       if (mediaList.length === 0) {
@@ -84,6 +84,16 @@ export async function POST(req: NextRequest) {
             },
             { status: 502 }
           );
+        }
+
+        for (const m of mediaList) {
+          if (m.posterKey && m.posterKey.startsWith('media/') && m.posterKey !== m.key) {
+            try {
+              await deleteObject(m.posterKey);
+            } catch (err) {
+              console.warn('batch delete poster failed:', m.posterKey, err);
+            }
+          }
         }
       }
 

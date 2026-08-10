@@ -47,7 +47,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const { id } = await params;
     const body = await req.json();
-    const data: { albumId?: string | null; title?: string | null } = {};
+    const data: {
+      albumId?: string | null;
+      title?: string | null;
+      posterKey?: string | null;
+    } = {};
 
     if ('albumId' in body) {
       if (body.albumId === null || body.albumId === '') {
@@ -71,6 +75,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           { error: e instanceof Error ? e.message : '标题无效' },
           { status: 400 }
         );
+      }
+    }
+
+    if ('posterKey' in body) {
+      if (body.posterKey === null || body.posterKey === '') {
+        data.posterKey = null;
+      } else if (typeof body.posterKey === 'string' && body.posterKey.startsWith('media/')) {
+        data.posterKey = body.posterKey;
+      } else {
+        return NextResponse.json({ error: 'posterKey 无效' }, { status: 400 });
       }
     }
 
@@ -122,6 +136,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
           { error: `COS 删除失败，已中止：${cosError}`, cosDeleted: false },
           { status: 502 }
         );
+      }
+      if (media.posterKey && media.posterKey.startsWith('media/') && media.posterKey !== media.key) {
+        try {
+          await deleteObject(media.posterKey);
+        } catch (err) {
+          console.warn('delete poster object failed:', media.posterKey, err);
+        }
       }
     }
 

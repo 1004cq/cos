@@ -31,6 +31,8 @@ model Media {
   albumId     String?
   album       Album?    @relation(fields: [albumId], references: [id], onDelete: SetNull)
   key         String    @unique
+  /// 视频封面对象键（COS/本地均可）；图片一般为空
+  posterKey   String?
   filename    String
   /// 展示标题（可选）；filename 始终保留原文件名
   title       String?

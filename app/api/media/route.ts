@@ -14,7 +14,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { key, filename, size, width, height, duration, albumId, takenAt, tags } = body;
+    const { key, filename, size, width, height, duration, albumId, takenAt, tags, posterKey } =
+      body;
 
     if (!key || !filename || size == null) {
       return NextResponse.json({ error: '缺少必要字段' }, { status: 400 });
@@ -22,6 +23,14 @@ export async function POST(req: NextRequest) {
 
     if (typeof key !== 'string' || !key.startsWith('media/')) {
       return NextResponse.json({ error: '非法的对象键' }, { status: 400 });
+    }
+
+    let resolvedPosterKey: string | null = null;
+    if (posterKey != null && posterKey !== '') {
+      if (typeof posterKey !== 'string' || !posterKey.startsWith('media/')) {
+        return NextResponse.json({ error: '非法的海报对象键' }, { status: 400 });
+      }
+      resolvedPosterKey = posterKey;
     }
 
     const mimeType = resolveUploadContentType(filename, body.mimeType);
@@ -70,6 +79,7 @@ export async function POST(req: NextRequest) {
         albumId: albumId || null,
         takenAt: takenAt ? new Date(takenAt) : null,
         tags: tags || [],
+        posterKey: resolvedPosterKey,
       },
     });
 

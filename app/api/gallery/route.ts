@@ -5,9 +5,6 @@ import { mapWithConcurrency } from '@/lib/utils';
 
 /**
  * 公开主页图库：无需登录
- * Query:
- *   pageSize  默认 80，最大 100
- *   type      image | video | all（默认 all）
  */
 export async function GET(req: NextRequest) {
   try {
@@ -36,6 +33,7 @@ export async function GET(req: NextRequest) {
         select: {
           id: true,
           key: true,
+          posterKey: true,
           filename: true,
           title: true,
           mimeType: true,
@@ -55,7 +53,6 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // 并发上限 6；每条内串行签名，避免一次打爆 COS
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
 
@@ -64,26 +61,41 @@ export async function GET(req: NextRequest) {
 
       try {
         const url = await getSignedUrl(m.key, 1800);
+        let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
+
+        if (m.posterKey && m.posterKey.startsWith('media/')) {
+          try {
+            posterUrl = await getSignedUrl(m.posterKey, 1800);
+          } catch (err) {
+            console.warn('gallery poster sign failed:', m.posterKey, err);
+          }
+        }
+
         if (isImage) {
           try {
             thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
-            thumbUrl = null;
           }
         } else if (isVideo) {
-          try {
-            thumbUrl = await getSignedUrl(m.key, 1800, { snapshot: true });
-          } catch (err) {
-            console.warn('gallery video snapshot failed:', m.key, err);
-            thumbUrl = null;
+          // 优先海报；否则尝试 COS 截帧
+          if (posterUrl) {
+            thumbUrl = posterUrl;
+          } else {
+            try {
+              thumbUrl = await getSignedUrl(m.key, 1800, { snapshot: true });
+            } catch (err) {
+              console.warn('gallery video snapshot failed:', m.key, err);
+              thumbUrl = null;
+            }
           }
         }
 
         return {
           id: m.id,
           key: m.key,
+          posterKey: m.posterKey,
           filename: m.filename,
           title: m.title,
           mimeType: m.mimeType,
@@ -95,6 +107,7 @@ export async function GET(req: NextRequest) {
           createdAt: m.createdAt,
           url,
           thumbUrl,
+          posterUrl,
           kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as 'image' | 'video' | 'other',
         };
       } catch (err) {
