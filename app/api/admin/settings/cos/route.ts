@@ -30,7 +30,17 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { secretId, secretKey, bucket, region, cdnDomain, thumbWidth, test } = body;
+    const {
+      secretId,
+      secretKey,
+      bucket,
+      region,
+      cdnDomain,
+      thumbWidth,
+      watermarkEnabled,
+      watermarkText,
+      test,
+    } = body;
 
     await saveCosConfig({
       secretId,
@@ -39,6 +49,10 @@ export async function PUT(req: NextRequest) {
       region,
       cdnDomain,
       thumbWidth: thumbWidth != null ? Number(thumbWidth) : undefined,
+      watermarkEnabled:
+        watermarkEnabled === undefined ? undefined : Boolean(watermarkEnabled),
+      watermarkText:
+        watermarkText === undefined ? undefined : String(watermarkText),
     });
 
     const config = await getCosConfigPublic();

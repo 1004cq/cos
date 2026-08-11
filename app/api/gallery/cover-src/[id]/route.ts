@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Readable } from 'node:stream';
 import { prisma } from '@/lib/prisma';
-import { getObjectBytes, getObjectStreamAsync } from '@/lib/cos';
+import { getObjectBytes } from '@/lib/cos';
 
 type Params = { params: Promise<{ id: string }> };
 

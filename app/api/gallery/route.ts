@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
+import { getCosConfig } from '@/lib/settings';
 import { mapWithConcurrency } from '@/lib/utils';
 
 /** 列表缩略/封面签名稍长，减少 20 人同时反复打 gallery */
@@ -27,7 +28,8 @@ export async function GET(req: NextRequest) {
           ? { mimeType: { startsWith: 'video/' as const } }
           : {};
 
-    const [items, imageCount, videoCount] = await Promise.all([
+    const [cfg, items, imageCount, videoCount] = await Promise.all([
+      getCosConfig(),
       prisma.media.findMany({
         where: {
           ...mimeFilter,
@@ -58,6 +60,8 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    const wm = Boolean(cfg.watermarkEnabled);
+
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
 
@@ -65,17 +69,26 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        const url = await getSignedUrl(m.key, ORIGIN_SIGN_TTL);
+        // 图片详情预览可加水印；视频原片与管理端下载不加
+        const url = await getSignedUrl(
+          m.key,
+          ORIGIN_SIGN_TTL,
+          isImage && wm ? { watermark: true } : undefined
+        );
         let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
 
         if (m.posterKey && m.posterKey.startsWith('media/')) {
           try {
-            // 海报再缩一层，列表更轻
-            posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, { thumb: true });
+            posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, {
+              thumb: true,
+              watermark: wm,
+            });
           } catch {
             try {
-              posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL);
+              posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, {
+                watermark: wm,
+              });
             } catch (err) {
               console.warn('gallery poster sign failed:', m.posterKey, err);
             }
@@ -85,7 +98,10 @@ export async function GET(req: NextRequest) {
         if (isImage) {
           try {
             // 列表禁止回退到原图 url，避免网格拉数 MB 原片
-            thumbUrl = await getSignedUrl(m.key, LIST_SIGN_TTL, { thumb: true });
+            thumbUrl = await getSignedUrl(m.key, LIST_SIGN_TTL, {
+              thumb: true,
+              watermark: wm,
+            });
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
             thumbUrl = null;
