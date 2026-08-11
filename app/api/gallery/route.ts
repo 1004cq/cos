@@ -3,8 +3,13 @@ import { prisma } from '@/lib/prisma';
 import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
 import { mapWithConcurrency } from '@/lib/utils';
 
+/** 列表缩略/封面签名稍长，减少 20 人同时反复打 gallery */
+const LIST_SIGN_TTL = 3600;
+const ORIGIN_SIGN_TTL = 1800;
+
 /**
  * 公开主页图库：无需登录
+ * 列表只依赖 thumbUrl/posterUrl，原图 url 供详情使用
  */
 export async function GET(req: NextRequest) {
   try {
@@ -60,27 +65,31 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        const url = await getSignedUrl(m.key, 1800);
+        const url = await getSignedUrl(m.key, ORIGIN_SIGN_TTL);
         let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
 
         if (m.posterKey && m.posterKey.startsWith('media/')) {
           try {
-            posterUrl = await getSignedUrl(m.posterKey, 1800);
-          } catch (err) {
-            console.warn('gallery poster sign failed:', m.posterKey, err);
+            // 海报再缩一层，列表更轻
+            posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, { thumb: true });
+          } catch {
+            try {
+              posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL);
+            } catch (err) {
+              console.warn('gallery poster sign failed:', m.posterKey, err);
+            }
           }
         }
 
         if (isImage) {
           try {
-            thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
+            thumbUrl = await getSignedUrl(m.key, LIST_SIGN_TTL, { thumb: true });
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
+            thumbUrl = url;
           }
         } else if (isVideo) {
-          // 仅使用已上传的海报。COS 数据万象 snapshot 未开通时 URL 会失败并造成灰块，
-          // 前端对无海报视频用签名播放地址截首帧（preload=metadata）。
           if (posterUrl) {
             thumbUrl = posterUrl;
           } else {
@@ -116,13 +125,21 @@ export async function GET(req: NextRequest) {
     const images = valid.filter((x) => x.kind === 'image');
     const videos = valid.filter((x) => x.kind === 'video');
 
-    return NextResponse.json({
-      images,
-      videos,
-      total: imageCount + videoCount,
-      imageCount,
-      videoCount,
-    });
+    return NextResponse.json(
+      {
+        images,
+        videos,
+        total: imageCount + videoCount,
+        imageCount,
+        videoCount,
+      },
+      {
+        headers: {
+          // 短缓存，减轻 20 人同时刷接口
+          'Cache-Control': 'public, max-age=30, stale-while-revalidate=60',
+        },
+      }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '加载失败';
     console.error('gallery error:', error);
