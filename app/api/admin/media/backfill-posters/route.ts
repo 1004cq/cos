@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
 
     for (const item of list) {
       try {
-        const posterKey = await generateAndStoreVideoPoster(item.key, { time: 1 });
+        // 后台补全可用更长超时；上传入库路径仍为短超时（约 12s）
+        const posterKey = await generateAndStoreVideoPoster(item.key, {
+          time: 1,
+          timeoutMs: 60_000,
+        });
         if (!posterKey) {
           results.push({
             id: item.id,

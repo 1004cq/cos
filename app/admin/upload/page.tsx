@@ -10,6 +10,18 @@ import {
   resolveUploadContentType,
 } from '@/lib/media-type';
 import { capturePosterBlobFromFile } from '@/lib/video-poster';
+import {
+  CLIENT_POSTER_TIMEOUT_MS,
+  MEDIA_SAVE_TIMEOUT_MS,
+  PRESIGN_TIMEOUT_MS,
+  type UploadPhase,
+  assertCosOriginPutUrl,
+  fetchWithTimeout,
+  putTimeoutMs,
+  readApiError,
+  uploadPhaseLabel,
+  xhrPutFile,
+} from '@/lib/upload-client';
 
 interface UploadItem {
   id: string;
@@ -19,6 +31,8 @@ interface UploadItem {
   title: string;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
+  /** 上传中三阶段：获取预签名 / PUT / 入库 */
+  phase?: UploadPhase;
   error?: string;
   key?: string;
   /** 数据库 Media.id（入库成功后） */
@@ -43,6 +57,7 @@ function makeId() {
 /**
  * 原文件字节直传 COS（预签名 PUT），成功后自动 POST /api/media 入库。
  * 禁止 canvas / ffmpeg / 前端重编码。
+ * 三阶段明确状态 + 各步超时，禁止无限转圈。
  */
 export default function UploadPage() {
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -54,6 +69,7 @@ export default function UploadPage() {
 
   const itemsRef = useRef(items);
   const albumIdRef = useRef(albumId);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   itemsRef.current = items;
   albumIdRef.current = albumId;
 
@@ -62,8 +78,7 @@ export default function UploadPage() {
       try {
         const res = await fetch('/api/albums');
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || '加载相册失败');
+          throw new Error(await readApiError(res, '加载相册失败'));
         }
         setAlbums(await res.json());
       } catch (e: unknown) {
@@ -73,8 +88,32 @@ export default function UploadPage() {
     void loadAlbums();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      void wakeLockRef.current?.release().catch(() => undefined);
+      wakeLockRef.current = null;
+    };
+  }, []);
+
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch {
+      // 浏览器可能拒绝；仅提示用户手动保持常亮
+    }
+  }, []);
+
+  const releaseWakeLockIfIdle = useCallback(() => {
+    const busy = itemsRef.current.some((i) => i.status === 'uploading');
+    if (busy) return;
+    void wakeLockRef.current?.release().catch(() => undefined);
+    wakeLockRef.current = null;
   }, []);
 
   const uploadOne = useCallback(
@@ -85,86 +124,111 @@ export default function UploadPage() {
 
       updateItem(queueId, {
         status: 'uploading',
+        phase: 'presign',
         progress: 0,
         error: undefined,
         sizeMismatch: undefined,
       });
+
+      if (snapshot.localSize > LARGE_UPLOAD_BYTES) {
+        void requestWakeLock();
+      }
 
       const contentType =
         snapshot.contentType ||
         resolveUploadContentType(snapshot.file.name, snapshot.file.type);
 
       try {
-        const presignRes = await fetch('/api/upload/presign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: snapshot.file.name,
-            contentType,
-            size: snapshot.file.size,
-          }),
-        });
+        // —— 1. 获取预签名 ——
+        updateItem(queueId, { phase: 'presign', progress: 0 });
+        const presignRes = await fetchWithTimeout(
+          '/api/upload/presign',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: snapshot.file.name,
+              contentType,
+              size: snapshot.file.size,
+            }),
+          },
+          PRESIGN_TIMEOUT_MS,
+          '获取预签名超时，请重试'
+        );
 
         if (!presignRes.ok) {
-          const err = await presignRes.json().catch(() => ({}));
-          throw new Error(err.error || '获取预签名失败');
+          throw new Error(await readApiError(presignRes, '获取预签名失败'));
         }
 
         const { url, key, contentType: signedType } = await presignRes.json();
+        if (typeof url !== 'string' || typeof key !== 'string') {
+          throw new Error('预签名响应无效');
+        }
+        assertCosOriginPutUrl(url);
         const putType = signedType || contentType;
 
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('PUT', url);
-          xhr.setRequestHeader('Content-Type', putType);
-
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-              const progress = Math.round((e.loaded / e.total) * 100);
-              updateItem(queueId, { progress, status: 'uploading' });
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) resolve();
-            else reject(new Error(`上传失败: ${xhr.status}`));
-          };
-          xhr.onerror = () => reject(new Error('网络错误'));
-          xhr.send(snapshot.file);
+        // —— 2. PUT 直传 COS（按体积 5–10 分钟超时）——
+        updateItem(queueId, { phase: 'put', progress: 0 });
+        const timeoutMs = putTimeoutMs(snapshot.file.size);
+        await xhrPutFile(url, snapshot.file, putType, timeoutMs, (progress) => {
+          updateItem(queueId, { progress, phase: 'put', status: 'uploading' });
         });
 
-        // 入库前再读一次标题（用户可能在 pending 时改过）
+        // —— 3. 入库（可选客户端海报；失败不堵死）——
+        updateItem(queueId, { phase: 'saving', progress: 100 });
+
         const latest = itemsRef.current.find((i) => i.id === queueId);
         const title = (latest?.title ?? snapshot.title).trim();
 
-        // 视频：先客户端截帧上传海报，入库时带上 posterKey；失败则由 POST /api/media 触发 CI
         let posterKey: string | undefined;
         if (
           putType.startsWith('video/') ||
           isVideoFilenameOrMime(snapshot.file.name, putType)
         ) {
           try {
-            const posterBlob = await capturePosterBlobFromFile(snapshot.file);
+            const posterBlob = await Promise.race([
+              capturePosterBlobFromFile(snapshot.file),
+              new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), CLIENT_POSTER_TIMEOUT_MS)
+              ),
+            ]);
             if (posterBlob && posterBlob.size > 0) {
               const posterName = `${snapshot.file.name.replace(/\.[^.]+$/, '') || 'video'}-poster.jpg`;
-              const posterPresign = await fetch('/api/upload/presign', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  filename: posterName,
-                  contentType: 'image/jpeg',
-                  size: posterBlob.size,
-                }),
-              });
+              const posterPresign = await fetchWithTimeout(
+                '/api/upload/presign',
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    filename: posterName,
+                    contentType: 'image/jpeg',
+                    size: posterBlob.size,
+                  }),
+                },
+                PRESIGN_TIMEOUT_MS,
+                '海报预签名超时'
+              );
               if (posterPresign.ok) {
                 const { url: posterPutUrl, key: pk } = await posterPresign.json();
-                const putOk = await fetch(posterPutUrl, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'image/jpeg' },
-                  body: posterBlob,
-                });
-                if (putOk.ok && typeof pk === 'string' && pk.startsWith('media/')) {
-                  posterKey = pk;
+                if (typeof posterPutUrl === 'string') {
+                  try {
+                    assertCosOriginPutUrl(posterPutUrl);
+                    const putOk = await fetchWithTimeout(
+                      posterPutUrl,
+                      {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'image/jpeg' },
+                        body: posterBlob,
+                      },
+                      CLIENT_POSTER_TIMEOUT_MS,
+                      '海报上传超时'
+                    );
+                    if (putOk.ok && typeof pk === 'string' && pk.startsWith('media/')) {
+                      posterKey = pk;
+                    }
+                  } catch (posterPutErr) {
+                    console.warn('video poster PUT skipped:', posterPutErr);
+                  }
                 }
               }
             }
@@ -173,23 +237,27 @@ export default function UploadPage() {
           }
         }
 
-        const mediaRes = await fetch('/api/media', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key,
-            filename: snapshot.file.name,
-            mimeType: putType,
-            size: snapshot.file.size,
-            albumId: albumIdRef.current || null,
-            ...(title ? { title } : {}),
-            ...(posterKey ? { posterKey } : {}),
-          }),
-        });
+        const mediaRes = await fetchWithTimeout(
+          '/api/media',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key,
+              filename: snapshot.file.name,
+              mimeType: putType,
+              size: snapshot.file.size,
+              albumId: albumIdRef.current || null,
+              ...(title ? { title } : {}),
+              ...(posterKey ? { posterKey } : {}),
+            }),
+          },
+          MEDIA_SAVE_TIMEOUT_MS,
+          '入库超时，文件可能已传到 COS，请重试入库或到媒体库确认'
+        );
 
         if (!mediaRes.ok) {
-          const err = await mediaRes.json().catch(() => ({}));
-          throw new Error(err.error || '入库失败');
+          throw new Error(await readApiError(mediaRes, '入库失败'));
         }
 
         const media = await mediaRes.json();
@@ -197,6 +265,7 @@ export default function UploadPage() {
         updateItem(queueId, {
           progress: 100,
           status: 'success',
+          phase: undefined,
           key,
           mediaId: media.id,
           contentType: putType,
@@ -207,11 +276,14 @@ export default function UploadPage() {
       } catch (err: unknown) {
         updateItem(queueId, {
           status: 'error',
+          phase: undefined,
           error: err instanceof Error ? err.message : '上传失败',
         });
+      } finally {
+        releaseWakeLockIfIdle();
       }
     },
-    [updateItem]
+    [updateItem, requestWakeLock, releaseWakeLockIfIdle]
   );
 
   const addFiles = useCallback((files: File[]) => {
@@ -314,7 +386,7 @@ export default function UploadPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">上传</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            预签名直传 COS · 成功后自动入库 · 无需再点确认
+            预签名直传 COS · 成功后自动入库 · 超时可重试
           </p>
         </div>
         <div className="flex gap-2">
@@ -339,9 +411,14 @@ export default function UploadPage() {
       </div>
 
       {largeHint && (
-        <div className="rounded-2xl glass p-4 text-sm border border-amber-300/60 bg-amber-50/50">
-          检测到超过 100MB 的文件：请保持屏幕常亮，上传完成前勿切换到微信或锁屏。
-          （当前为单次 PUT 无损直传；更大文件后续可加 multipart，仍按原字节上传。）
+        <div className="rounded-2xl glass p-4 text-sm border border-amber-300/60 bg-amber-50/50 space-y-1">
+          <p>
+            检测到超过 100MB 的文件：请<strong>保持屏幕常亮</strong>，上传完成前勿切换到微信或锁屏。
+            建议使用 <strong>Safari</strong> 上传。
+          </p>
+          <p style={{ color: 'var(--text-muted)' }}>
+            （当前为单次 PUT 无损直传；更大文件后续可加 multipart，仍按原字节上传。）
+          </p>
         </div>
       )}
 
@@ -362,7 +439,7 @@ export default function UploadPage() {
         </select>
         {albumsError && <p className="text-xs text-red-500">{albumsError}</p>}
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          选择文件 → 可选填标题 → 点「开始上传」；上传成功即写入媒体库，不必再点勾选确认。
+          流程：获取预签名 → 上传到 COS（显示进度）→ 入库。任一步超时会标红并可重试。
         </p>
       </div>
 
@@ -439,6 +516,10 @@ export default function UploadPage() {
           {items.map((item) => {
             const isVideo = isVideoFilenameOrMime(item.file.name, item.contentType);
             const canEditTitle = item.status === 'pending' || item.status === 'error';
+            const phaseText =
+              item.status === 'uploading' && item.phase
+                ? uploadPhaseLabel(item.phase, item.progress)
+                : null;
             return (
               <div key={item.id} className="p-4 rounded-2xl glass space-y-3">
                 <div className="flex items-center gap-4">
@@ -462,17 +543,28 @@ export default function UploadPage() {
                       </p>
                     )}
                   </div>
-                  <div className="w-36 text-right text-sm shrink-0">
+                  <div className="w-40 text-right text-sm shrink-0">
                     {item.status === 'uploading' && (
                       <div className="space-y-1">
                         <div className="h-2 rounded-full overflow-hidden bg-white/50">
                           <div
-                            className="h-full bg-blue-500 transition-all"
-                            style={{ width: `${item.progress}%` }}
+                            className={`h-full bg-blue-500 transition-all ${
+                              item.phase === 'saving' || item.phase === 'presign'
+                                ? 'animate-pulse'
+                                : ''
+                            }`}
+                            style={{
+                              width:
+                                item.phase === 'put'
+                                  ? `${item.progress}%`
+                                  : item.phase === 'saving'
+                                    ? '100%'
+                                    : '15%',
+                            }}
                           />
                         </div>
                         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                          {item.progress}%
+                          {phaseText}
                         </p>
                       </div>
                     )}
@@ -484,7 +576,9 @@ export default function UploadPage() {
                     )}
                     {item.status === 'error' && (
                       <div className="space-y-1">
-                        <p className="text-red-500 text-xs break-all">{item.error}</p>
+                        <p className="text-red-500 text-xs break-all text-left sm:text-right">
+                          {item.error || '上传失败'}
+                        </p>
                         <button
                           type="button"
                           onClick={() => void uploadOne(item.id)}

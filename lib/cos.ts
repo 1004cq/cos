@@ -114,6 +114,10 @@ function buildWatermarkRule(text: string): string {
   return `watermark/2/text/${textB64}/fontsize/18/fill/${fillB64}/dissolve/55/gravity/southeast/dx/12/dy/12`;
 }
 
+/**
+ * 上传预签名 PUT：强制 COS 源站 URL（不对 PUT 套 CDN）。
+ * getObjectUrlWithClient 仅在 method===GET 时 applyCdnHost。
+ */
 export async function getUploadPresignedUrl(
   key: string,
   contentType: string,
@@ -125,6 +129,8 @@ export async function getUploadPresignedUrl(
 
   const cfg = await loadConfig();
   const safeExpires = Math.min(Math.max(expires, 60), 600);
+  let url: string | null = null;
+  let viaSts = false;
 
   if (stsModule?.isStsEnabled?.()) {
     try {
@@ -134,20 +140,45 @@ export async function getUploadPresignedUrl(
         SecretKey: sts.credentials.tmpSecretKey,
         SecurityToken: sts.credentials.sessionToken,
       });
-      const url = await getObjectUrlWithClient(tempCos, cfg, key, 'PUT', safeExpires, {
+      url = await getObjectUrlWithClient(tempCos, cfg, key, 'PUT', safeExpires, {
         headers: { 'Content-Type': contentType },
       });
-      return { url, viaSts: true };
+      viaSts = true;
     } catch (err) {
       console.warn('STS 预签名失败，回退永久密钥:', err);
+      url = null;
+      viaSts = false;
     }
   }
 
-  const client = createClient(cfg);
-  const url = await getObjectUrlWithClient(client, cfg, key, 'PUT', safeExpires, {
-    headers: { 'Content-Type': contentType },
-  });
-  return { url, viaSts: false };
+  if (!url) {
+    const client = createClient(cfg);
+    url = await getObjectUrlWithClient(client, cfg, key, 'PUT', safeExpires, {
+      headers: { 'Content-Type': contentType },
+    });
+  }
+
+  assertPutUrlIsCosOrigin(url);
+  return { url, viaSts };
+}
+
+/** 服务端兜底：PUT 必须是 myqcloud COS 源站，禁止 CDN/中文域 */
+function assertPutUrlIsCosOrigin(url: string): void {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    throw new Error('生成的预签名 URL 无效');
+  }
+  if (!host || /[^\x00-\x7F]/.test(host) || host.includes('xn--')) {
+    throw new Error('预签名 PUT 不可使用中文/IDN 域名');
+  }
+  const ok =
+    (host.includes('.cos.') && host.endsWith('.myqcloud.com')) ||
+    /^cos\.[a-z0-9-]+\.myqcloud\.com$/.test(host);
+  if (!ok) {
+    throw new Error('预签名 PUT 必须指向 COS 源站（不可用 CDN）');
+  }
 }
 
 export async function getSignedUrl(

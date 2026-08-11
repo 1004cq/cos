@@ -34,7 +34,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
       return NextResponse.json({ posterKey: media.posterKey, skipped: true });
     }
 
-    const posterKey = await generateAndStoreVideoPoster(media.key, { time: 1 });
+    const posterKey = await generateAndStoreVideoPoster(media.key, {
+      time: 1,
+      timeoutMs: 30_000,
+    });
     if (!posterKey) {
       return NextResponse.json(
         { error: '截帧失败（请确认数据万象媒体处理已开通）' },

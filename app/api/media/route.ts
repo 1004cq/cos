@@ -66,13 +66,20 @@ export async function POST(req: NextRequest) {
     const storedSize = cosSize != null ? cosSize : clientSize;
     const sizeMismatch = cosSize != null && cosSize !== clientSize;
 
-    // 视频无客户端海报时：服务端 CI 截帧（需开通数据万象媒体处理）
-    let posterSource: 'client' | 'ci' | null = resolvedPosterKey ? 'client' : null;
+    // 视频无客户端海报时：服务端 CI 截帧（短超时；失败仍入库，posterKey 为空）
+    let posterSource: 'client' | 'ci' | 'skipped' | null = resolvedPosterKey
+      ? 'client'
+      : null;
     if (!resolvedPosterKey && mimeType.startsWith('video/')) {
-      const generated = await generateAndStoreVideoPoster(key, { time: 1 });
+      const generated = await generateAndStoreVideoPoster(key, {
+        time: 1,
+        timeoutMs: 12_000,
+      });
       if (generated) {
         resolvedPosterKey = generated;
         posterSource = 'ci';
+      } else {
+        posterSource = 'skipped';
       }
     }
 
