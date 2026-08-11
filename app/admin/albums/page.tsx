@@ -12,6 +12,7 @@ type Album = {
   title: string;
   description?: string | null;
   coverKey?: string | null;
+  displayCoverKey?: string | null;
   isPublic: boolean;
   sortOrder: number;
   createdAt: string;
@@ -39,9 +40,10 @@ export default function AdminAlbumsPage() {
   const [shareAlbum, setShareAlbum] = useState<Album | null>(null);
 
   const loadCovers = useCallback(async (list: Album[]) => {
-    const withCover = list.filter((a) => a.coverKey);
+    const withCover = list.filter((a) => a.displayCoverKey || a.coverKey);
     const signed = await mapWithConcurrency(withCover, 4, async (album) => {
-      const url = await fetchSignedUrl(album.coverKey!, { thumb: true });
+      const key = album.displayCoverKey || album.coverKey!;
+      const url = await fetchSignedUrl(key, { thumb: true });
       return url ? { id: album.id, url } : null;
     });
 

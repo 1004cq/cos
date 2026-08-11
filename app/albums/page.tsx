@@ -12,6 +12,7 @@ type Album = {
   title: string;
   description?: string | null;
   coverKey?: string | null;
+  displayCoverKey?: string | null;
   _count?: { media: number };
 };
 
@@ -42,9 +43,10 @@ export default function AlbumsPage() {
         const list: Album[] = await res.json();
         setAlbums(list);
 
-        const withCover = list.filter((a) => a.coverKey);
+        const withCover = list.filter((a) => a.displayCoverKey || a.coverKey);
         const signed = await mapWithConcurrency(withCover, 4, async (album) => {
-          const url = await fetchSignedUrl(album.coverKey!, { thumb: true });
+          const key = album.displayCoverKey || album.coverKey!;
+          const url = await fetchSignedUrl(key, { thumb: true });
           return url ? { id: album.id, url } : null;
         });
         const map: Record<string, string> = {};

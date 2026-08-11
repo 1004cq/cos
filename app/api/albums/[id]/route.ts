@@ -29,13 +29,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
     }
 
     return NextResponse.json(album);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '获取失败';
     console.error('get album error:', error);
-    return NextResponse.json({ error: error.message || '获取失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-/** 更新相册 */
+/** 更新相册（含设置/清除封面 coverKey） */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const session = await getServerSession(authOptions);
@@ -51,16 +52,35 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (title !== undefined) data.title = String(title).trim();
     if (description !== undefined) data.description = description;
     if (isPublic !== undefined) data.isPublic = Boolean(isPublic);
+    if (sortOrder !== undefined) data.sortOrder = Number(sortOrder);
+
     if (coverKey !== undefined) {
       if (coverKey === null || coverKey === '') {
         data.coverKey = null;
       } else if (typeof coverKey === 'string' && coverKey.startsWith('media/')) {
+        // 封面必须来自本相册媒体：图片用 key，视频可用 posterKey
+        const media = await prisma.media.findFirst({
+          where: {
+            albumId: id,
+            OR: [{ key: coverKey }, { posterKey: coverKey }],
+          },
+          select: { id: true, key: true, posterKey: true, mimeType: true },
+        });
+        if (!media) {
+          return NextResponse.json(
+            { error: '封面必须是本相册内的图片，或已有海报的视频' },
+            { status: 400 }
+          );
+        }
         data.coverKey = coverKey;
       } else {
         return NextResponse.json({ error: 'coverKey 非法' }, { status: 400 });
       }
     }
-    if (sortOrder !== undefined) data.sortOrder = Number(sortOrder);
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 });
+    }
 
     const album = await prisma.album.update({
       where: { id },
@@ -68,9 +88,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     });
 
     return NextResponse.json(album);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '更新失败';
     console.error('update album error:', error);
-    return NextResponse.json({ error: error.message || '更新失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -87,8 +108,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     await prisma.album.delete({ where: { id } });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '删除失败';
     console.error('delete album error:', error);
-    return NextResponse.json({ error: error.message || '删除失败' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

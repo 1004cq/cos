@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ImagePlus, Share2, Trash2 } from 'lucide-react';
+import { ArrowLeft, ImagePlus, Share2, Trash2, X } from 'lucide-react';
 import { mapWithConcurrency, cn } from '@/lib/utils';
 import { fetchSignedUrl } from '@/lib/sign-client';
 import { ShareCreateDialog } from '@/components/share-create-dialog';
@@ -11,6 +11,7 @@ import { Lightbox, type LightboxItem } from '@/components/lightbox';
 type MediaItem = {
   id: string;
   key: string;
+  posterKey?: string | null;
   filename: string;
   title?: string | null;
   mimeType: string;
@@ -26,6 +27,21 @@ type AlbumDetail = {
   media: MediaItem[];
 };
 
+/** 该媒体可作为封面的对象键：图片用 key，视频用 posterKey */
+function coverCandidateKey(item: MediaItem): string | null {
+  if (item.mimeType.startsWith('image/') && item.key.startsWith('media/')) {
+    return item.key;
+  }
+  if (
+    item.mimeType.startsWith('video/') &&
+    item.posterKey &&
+    item.posterKey.startsWith('media/')
+  ) {
+    return item.posterKey;
+  }
+  return null;
+}
+
 export default function AdminAlbumDetailPage({
   params,
 }: {
@@ -34,6 +50,7 @@ export default function AdminAlbumDetailPage({
   const { id } = use(params);
   const [album, setAlbum] = useState<AlbumDetail | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -45,8 +62,17 @@ export default function AdminAlbumDetailPage({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const loadThumbs = useCallback(async (media: MediaItem[]) => {
-    const images = media.filter((m) => m.mimeType.startsWith('image/'));
-    const signed = await mapWithConcurrency(images, 6, async (m) => {
+    const targets = media
+      .map((m) => {
+        if (m.mimeType.startsWith('image/')) return { id: m.id, key: m.key };
+        if (m.mimeType.startsWith('video/') && m.posterKey) {
+          return { id: m.id, key: m.posterKey };
+        }
+        return null;
+      })
+      .filter(Boolean) as { id: string; key: string }[];
+
+    const signed = await mapWithConcurrency(targets, 6, async (m) => {
       const url = await fetchSignedUrl(m.key, { thumb: true });
       return url ? { id: m.id, url } : null;
     });
@@ -55,6 +81,15 @@ export default function AdminAlbumDetailPage({
       if (item) map[item.id] = item.url;
     }
     setThumbs(map);
+  }, []);
+
+  const loadCoverPreview = useCallback(async (key: string | null | undefined) => {
+    if (!key) {
+      setCoverUrl(null);
+      return;
+    }
+    const url = await fetchSignedUrl(key, { thumb: true });
+    setCoverUrl(url);
   }, []);
 
   const load = useCallback(async () => {
@@ -77,12 +112,13 @@ export default function AdminAlbumDetailPage({
         return next;
       });
       void loadThumbs(data.media || []);
+      void loadCoverPreview(data.coverKey);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {
       setLoading(false);
     }
-  }, [id, loadThumbs]);
+  }, [id, loadThumbs, loadCoverPreview]);
 
   useEffect(() => {
     void load();
@@ -102,11 +138,8 @@ export default function AdminAlbumDetailPage({
   }
 
   function toggleSelectAll() {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(pageIds));
-    }
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(pageIds));
   }
 
   function snapshotSelectedIds(): string[] {
@@ -155,11 +188,7 @@ export default function AdminAlbumDetailPage({
       const res = await fetch('/api/media/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'move',
-          ids,
-          albumId: null,
-        }),
+        body: JSON.stringify({ action: 'move', ids, albumId: null }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '批量移出失败');
@@ -176,6 +205,7 @@ export default function AdminAlbumDetailPage({
   async function setCover(key: string) {
     setBusy(true);
     setError('');
+    setSuccessMsg('');
     try {
       const res = await fetch(`/api/albums/${id}`, {
         method: 'PATCH',
@@ -185,8 +215,33 @@ export default function AdminAlbumDetailPage({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '设置封面失败');
       setAlbum((prev) => (prev ? { ...prev, coverKey: key } : prev));
+      void loadCoverPreview(key);
+      setSuccessMsg('相册封面已更新');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '设置封面失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearCover() {
+    if (!confirm('清除相册封面？')) return;
+    setBusy(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await fetch(`/api/albums/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coverKey: null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '清除封面失败');
+      setAlbum((prev) => (prev ? { ...prev, coverKey: null } : prev));
+      setCoverUrl(null);
+      setSuccessMsg('已清除封面');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '清除封面失败');
     } finally {
       setBusy(false);
     }
@@ -201,6 +256,9 @@ export default function AdminAlbumDetailPage({
         filename: m.filename,
         title: m.title,
         mimeType: m.mimeType,
+        thumbUrl: thumbs[m.id] || null,
+        posterUrl:
+          m.mimeType.startsWith('video/') && m.posterKey ? thumbs[m.id] || null : null,
       })),
     [mediaList, thumbs]
   );
@@ -249,7 +307,7 @@ export default function AdminAlbumDetailPage({
             </p>
           )}
           <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-            {album.media.length} 项媒体 · 勾选多选；点击缩略图预览
+            {album.media.length} 项媒体 · 点「设封面」即可更换相册封面
           </p>
         </div>
         <button
@@ -266,14 +324,49 @@ export default function AdminAlbumDetailPage({
         </button>
       </div>
 
+      {/* 当前封面预览 */}
+      <div className="rounded-3xl glass overflow-hidden">
+        <div className="aspect-[21/9] relative bg-black/5">
+          {coverUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={coverUrl}
+              alt="相册封面"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-sm"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <ImagePlus className="w-6 h-6 opacity-50" />
+              <span>尚未设置封面</span>
+              <span className="text-xs">在下方媒体上点「设封面」</span>
+            </div>
+          )}
+        </div>
+        <div className="p-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            {album.coverKey ? '已设置自定义封面' : '未设置 · 列表可能自动用首张图'}
+          </p>
+          {album.coverKey && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void clearCover()}
+              className="btn-ghost !py-1.5 !px-3 text-sm inline-flex items-center gap-1 text-red-600 disabled:opacity-50"
+            >
+              <X className="w-3.5 h-3.5" />
+              清除封面
+            </button>
+          )}
+        </div>
+      </div>
+
       {album.media.length > 0 && (
         <div className="rounded-2xl glass p-3 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleSelectAll}
-            />
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
             全选
           </label>
           <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -327,8 +420,12 @@ export default function AdminAlbumDetailPage({
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {album.media.map((item) => {
             const isVideo = item.mimeType.startsWith('video/');
-            const isCover = album.coverKey === item.key;
+            const candidate = coverCandidateKey(item);
+            const isCover = Boolean(
+              album.coverKey && candidate && album.coverKey === candidate
+            );
             const checked = selected.has(item.id);
+            const canBeCover = Boolean(candidate);
             return (
               <div
                 key={item.id}
@@ -354,16 +451,15 @@ export default function AdminAlbumDetailPage({
                   onClick={() => openPreview(item.id)}
                   aria-label={`预览 ${item.filename}`}
                 >
-                  {isVideo ? (
+                  {thumbs[item.id] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={thumbs[item.id]} alt={item.filename} loading="lazy" />
+                  ) : isVideo ? (
                     <div
-                      className="w-full h-full flex items-center justify-center"
-                      style={{ color: 'var(--text-muted)' }}
+                      className="w-full h-full flex items-center justify-center bg-zinc-800 text-white/60"
                     >
                       ▶
                     </div>
-                  ) : thumbs[item.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={thumbs[item.id]} alt={item.filename} loading="lazy" />
                   ) : (
                     <div
                       className="w-full h-full flex items-center justify-center text-xs"
@@ -373,22 +469,29 @@ export default function AdminAlbumDetailPage({
                     </div>
                   )}
                 </button>
-                <div className="absolute inset-x-0 bottom-0 z-20 p-2 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition">
+
+                {/* 底部操作：始终可见，方便手机点「设封面」 */}
+                <div className="absolute inset-x-0 bottom-0 z-20 p-2 bg-gradient-to-t from-black/65 to-transparent">
                   <p className="text-white text-xs truncate mb-1.5">{item.filename}</p>
                   <div className="flex gap-1">
-                    {!isVideo && (
+                    {canBeCover && (
                       <button
                         type="button"
                         disabled={busy || isCover}
                         onClick={(e) => {
                           e.stopPropagation();
-                          void setCover(item.key);
+                          void setCover(candidate!);
                         }}
-                        className="flex-1 text-[10px] py-1 rounded-lg bg-white/90 text-[var(--text)] disabled:opacity-50 inline-flex items-center justify-center gap-0.5"
+                        className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/95 text-[var(--text)] disabled:opacity-50 inline-flex items-center justify-center gap-0.5"
                       >
                         <ImagePlus className="w-3 h-3" />
-                        {isCover ? '封面' : '设封面'}
+                        {isCover ? '当前封面' : '设封面'}
                       </button>
+                    )}
+                    {!canBeCover && isVideo && (
+                      <span className="flex-1 text-[10px] py-1.5 text-center text-white/70">
+                        无海报不可设封面
+                      </span>
                     )}
                     <button
                       type="button"
@@ -397,7 +500,7 @@ export default function AdminAlbumDetailPage({
                         e.stopPropagation();
                         void removeFromAlbum(item.id);
                       }}
-                      className="flex-1 text-[10px] py-1 rounded-lg bg-white/90 text-red-600 disabled:opacity-50 inline-flex items-center justify-center gap-0.5"
+                      className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/95 text-red-600 disabled:opacity-50 inline-flex items-center justify-center gap-0.5"
                     >
                       <Trash2 className="w-3 h-3" />
                       移出
@@ -429,9 +532,7 @@ export default function AdminAlbumDetailPage({
             : `分享相册：${album.title}`
         }
         onCreated={() => {
-          if (shareMode === 'selected') {
-            setSelected(new Set());
-          }
+          if (shareMode === 'selected') setSelected(new Set());
           setSuccessMsg('分享已创建');
         }}
       />
