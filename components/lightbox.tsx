@@ -264,6 +264,9 @@ export function Lightbox({
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
         style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <button type="button" onClick={onClose} className="photos-icon-btn" aria-label="返回">
           <ChevronLeft className="w-6 h-6" strokeWidth={2.25} />
