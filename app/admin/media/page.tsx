@@ -308,6 +308,32 @@ export default function AdminMediaPage() {
     [items, thumbs]
   );
 
+  const [backfilling, setBackfilling] = useState(false);
+
+  async function handleBackfillPosters() {
+    if (backfilling || busy) return;
+    setBackfilling(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await fetch('/api/admin/media/backfill-posters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 50 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '补封面失败');
+      setSuccessMsg(
+        `视频封面补全：成功 ${data.ok ?? 0} / 尝试 ${data.attempted ?? 0}`
+      );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '补封面失败');
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   function openPreview(id: string) {
     const idx = items.findIndex((m) => m.id === id);
     if (idx >= 0) setLightboxIndex(idx);
@@ -324,7 +350,16 @@ export default function AdminMediaPage() {
             共 {total} 项 · 勾选复选框多选；点击缩略图预览 · 批量操作见下方工具条
           </p>
         </div>
-        <div className="flex gap-1 rounded-xl glass p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={backfilling || busy}
+            onClick={() => void handleBackfillPosters()}
+            className="text-sm px-3 py-2 rounded-xl glass hover:bg-white/50 disabled:opacity-50"
+          >
+            {backfilling ? '补封面中…' : '补全视频封面'}
+          </button>
+          <div className="flex gap-1 rounded-xl glass p-1">
           <button
             type="button"
             onClick={() => setView('grid')}
@@ -347,6 +382,7 @@ export default function AdminMediaPage() {
           >
             <List className="w-4 h-4" />
           </button>
+          </div>
         </div>
       </div>
 

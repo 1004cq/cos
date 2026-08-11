@@ -29,22 +29,19 @@ function FilmstripThumb({
   id,
   src,
   posterUrl,
-  videoUrl,
   isVideo,
 }: {
   id: string;
   src?: string | null;
   posterUrl?: string | null;
-  videoUrl?: string | null;
   isVideo?: boolean;
 }) {
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-zinc-800">
       <MediaCover
         id={`strip-${id}`}
         posterUrl={posterUrl}
-        thumbUrl={isVideo ? null : src}
-        videoUrl={isVideo ? videoUrl : null}
+        thumbUrl={src}
         isVideo={isVideo}
         showPlayBadge={isVideo}
         compact
@@ -361,11 +358,6 @@ export function Lightbox({
                     id={item.id}
                     src={thumb}
                     posterUrl={item.posterUrl}
-                    videoUrl={
-                      itemVideo && !item.posterUrl
-                        ? `/api/gallery/cover-src/${item.id}`
-                        : null
-                    }
                     isVideo={itemVideo}
                   />
                 </button>

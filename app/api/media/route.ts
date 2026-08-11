@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { headObjectSize } from '@/lib/cos';
+import { headObjectSize, generateAndStoreVideoPoster } from '@/lib/cos';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
 
@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '无效的 size' }, { status: 400 });
     }
 
-    // 以 COS 实际 Content-Length 为准核对是否原字节入库（不转码、不压缩）
     let cosSize: number | null = null;
     try {
       cosSize = await headObjectSize(key);
@@ -65,6 +64,16 @@ export async function POST(req: NextRequest) {
 
     const storedSize = cosSize != null ? cosSize : clientSize;
     const sizeMismatch = cosSize != null && cosSize !== clientSize;
+
+    // 视频无海报：服务端 CI snapshot 写 *-poster.jpg（需开通数据万象）
+    let posterFromCi = false;
+    if (!resolvedPosterKey && mimeType.startsWith('video/')) {
+      const generated = await generateAndStoreVideoPoster(key);
+      if (generated) {
+        resolvedPosterKey = generated;
+        posterFromCi = true;
+      }
+    }
 
     const media = await prisma.media.create({
       data: {
@@ -88,6 +97,7 @@ export async function POST(req: NextRequest) {
       clientSize,
       cosSize,
       sizeMismatch,
+      posterFromCi,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '入库失败';

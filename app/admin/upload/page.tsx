@@ -136,31 +136,14 @@ export default function UploadPage() {
         // 入库前再读一次标题（用户可能在 pending 时改过）
         const latest = itemsRef.current.find((i) => i.id === queueId);
         const title = (latest?.title ?? snapshot.title).trim();
-        const mediaRes = await fetch('/api/media', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key,
-            filename: snapshot.file.name,
-            mimeType: putType,
-            size: snapshot.file.size,
-            albumId: albumIdRef.current || null,
-            ...(title ? { title } : {}),
-          }),
-        });
 
-        if (!mediaRes.ok) {
-          const err = await mediaRes.json().catch(() => ({}));
-          throw new Error(err.error || '入库失败');
-        }
+        let posterKey: string | undefined;
+        const isVideo =
+          putType.startsWith('video/') ||
+          isVideoFilenameOrMime(snapshot.file.name, putType);
 
-        const media = await mediaRes.json();
-
-        // 视频：尽量截帧上传海报（失败不影响主文件入库成功）
-        if (
-          media.id &&
-          (putType.startsWith('video/') || isVideoFilenameOrMime(snapshot.file.name, putType))
-        ) {
+        // 视频：先截帧上传海报，再入库（失败则交给服务端 CI）
+        if (isVideo) {
           try {
             const posterBlob = await capturePosterBlobFromFile(snapshot.file);
             if (posterBlob && posterBlob.size > 0) {
@@ -175,25 +158,42 @@ export default function UploadPage() {
                 }),
               });
               if (posterPresign.ok) {
-                const { url: posterPutUrl, key: posterKey } = await posterPresign.json();
+                const { url: posterPutUrl, key: pk } = await posterPresign.json();
                 const putOk = await fetch(posterPutUrl, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'image/jpeg' },
                   body: posterBlob,
                 });
-                if (putOk.ok && typeof posterKey === 'string') {
-                  await fetch(`/api/media/${media.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ posterKey }),
-                  });
+                if (putOk.ok && typeof pk === 'string' && pk.startsWith('media/')) {
+                  posterKey = pk;
                 }
               }
             }
           } catch (posterErr) {
-            console.warn('video poster upload skipped:', posterErr);
+            console.warn('client video poster skipped:', posterErr);
           }
         }
+
+        const mediaRes = await fetch('/api/media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key,
+            filename: snapshot.file.name,
+            mimeType: putType,
+            size: snapshot.file.size,
+            albumId: albumIdRef.current || null,
+            ...(title ? { title } : {}),
+            ...(posterKey ? { posterKey } : {}),
+          }),
+        });
+
+        if (!mediaRes.ok) {
+          const err = await mediaRes.json().catch(() => ({}));
+          throw new Error(err.error || '入库失败');
+        }
+
+        const media = await mediaRes.json();
 
         updateItem(queueId, {
           progress: 100,

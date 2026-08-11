@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
+import {
+  getSignedUrl,
+  GALLERY_SIGN_TTL,
+  SIGN_CONCURRENCY,
+} from '@/lib/cos';
 import { mapWithConcurrency } from '@/lib/utils';
+
+function watermarkEnabled(): boolean {
+  const v = (process.env.COS_WATERMARK || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
 
 /**
  * 公开主页图库：无需登录
+ * 网格应只使用 thumbUrl / posterUrl，勿把原片/整段视频铺列表。
  */
 export async function GET(req: NextRequest) {
   try {
@@ -14,6 +24,7 @@ export async function GET(req: NextRequest) {
       Math.max(1, parseInt(searchParams.get('pageSize') || '80', 10) || 80)
     );
     const type = searchParams.get('type') || 'all';
+    const wm = watermarkEnabled();
 
     const mimeFilter =
       type === 'image'
@@ -53,6 +64,8 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    const ttl = GALLERY_SIGN_TTL;
+
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
 
@@ -60,32 +73,43 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        const url = await getSignedUrl(m.key, 1800);
+        // 详情原片/原片视频（点进灯箱再用）；列表禁止用其铺网格
+        const url = await getSignedUrl(m.key, ttl, {
+          watermark: wm && isImage,
+        });
         let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
 
         if (m.posterKey && m.posterKey.startsWith('media/')) {
           try {
-            posterUrl = await getSignedUrl(m.posterKey, 1800);
+            posterUrl = await getSignedUrl(m.posterKey, ttl, {
+              thumb: true,
+              watermark: wm,
+            });
           } catch (err) {
             console.warn('gallery poster sign failed:', m.posterKey, err);
+            try {
+              posterUrl = await getSignedUrl(m.posterKey, ttl, { watermark: wm });
+            } catch {
+              posterUrl = null;
+            }
           }
         }
 
         if (isImage) {
           try {
-            thumbUrl = await getSignedUrl(m.key, 1800, { thumb: true });
+            thumbUrl = await getSignedUrl(m.key, ttl, {
+              thumb: true,
+              watermark: wm,
+            });
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
-          }
-        } else if (isVideo) {
-          // 仅使用已上传的海报。COS 数据万象 snapshot 未开通时 URL 会失败并造成灰块，
-          // 前端对无海报视频用签名播放地址截首帧（preload=metadata）。
-          if (posterUrl) {
-            thumbUrl = posterUrl;
-          } else {
+            // 缩略失败时不要用原图填列表（会打爆带宽）；留空由前端占位
             thumbUrl = null;
           }
+        } else if (isVideo) {
+          // 网格只认海报；无海报时 thumbUrl 为空（请跑 backfill-posters）
+          thumbUrl = posterUrl;
         }
 
         return {
@@ -104,7 +128,10 @@ export async function GET(req: NextRequest) {
           url,
           thumbUrl,
           posterUrl,
-          kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as 'image' | 'video' | 'other',
+          kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as
+            | 'image'
+            | 'video'
+            | 'other',
         };
       } catch (err) {
         console.error('gallery sign failed:', m.key, err);
@@ -116,13 +143,20 @@ export async function GET(req: NextRequest) {
     const images = valid.filter((x) => x.kind === 'image');
     const videos = valid.filter((x) => x.kind === 'video');
 
-    return NextResponse.json({
-      images,
-      videos,
-      total: imageCount + videoCount,
-      imageCount,
-      videoCount,
-    });
+    return NextResponse.json(
+      {
+        images,
+        videos,
+        total: imageCount + videoCount,
+        imageCount,
+        videoCount,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=30',
+        },
+      }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '加载失败';
     console.error('gallery error:', error);

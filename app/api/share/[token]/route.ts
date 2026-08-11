@@ -71,7 +71,6 @@ async function buildShareItems(mediaList: MediaRow[]) {
         thumbUrl = null;
       }
     } else if (isVideo) {
-      // 与 gallery 一致：无海报时不走 COS snapshot（易灰块），交给前端首帧
       thumbUrl = posterUrl;
     }
 

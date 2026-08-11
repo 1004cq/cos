@@ -1,5 +1,5 @@
 import COS from 'cos-nodejs-sdk-v5';
-import { getCosConfig, type CosRuntimeConfig } from './settings';
+import { getCosConfig, type CosRuntimeConfig, isUnsafeCdnHost } from './settings';
 
 // STS 可选：若项目有 lib/sts.ts 可再接入
 let stsModule: {
@@ -30,11 +30,16 @@ function createClient(cfg: CosRuntimeConfig, token?: string) {
   });
 }
 
-/** 仅用于「读取/播放」签名；上传 PUT 绝不能换 host，否则会 404 */
-function applyCdnHost(url: string, cdnDomain: string): string {
+/**
+ * 仅用于「读取/播放」GET 签名换 CDN host。
+ * PUT 绝不能换 host；中文/IDN 域名禁止当 CDN。
+ */
+export function applyCdnHost(url: string, cdnDomain: string): string {
   if (!cdnDomain) return url;
-  const host = cdnDomain.replace(/^https?:\/\//, '').split('/')[0];
-  if (!host) return url;
+  const host = cdnDomain.replace(/^https?:\/\//, '').split('/')[0]?.trim() || '';
+  if (!host || isUnsafeCdnHost(host)) return url;
+  // 再拦一遍非 ASCII
+  if (/[^\x00-\x7F]/.test(host)) return url;
   try {
     const u = new URL(url);
     u.host = host;
@@ -42,6 +47,15 @@ function applyCdnHost(url: string, cdnDomain: string): string {
   } catch {
     return url;
   }
+}
+
+/** 数据万象文字水印：Base64 URL-safe（去 =，+/ → -_） */
+export function ciUrlSafeBase64(text: string): string {
+  return Buffer.from(text, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
 }
 
 function getObjectUrlWithClient(
@@ -66,8 +80,12 @@ function getObjectUrlWithClient(
       },
       (err, data) => {
         if (err) return reject(err);
-        // 签名始终返回 COS 源站 URL；CDN 保持空，避免错 host 导致灰块/404
-        resolve(data.Url);
+        let url = data.Url;
+        // CDN 仅绑定在 GET；PUT 始终 COS 源站
+        if (method === 'GET' && cfg.cdnDomain) {
+          url = applyCdnHost(url, cfg.cdnDomain);
+        }
+        resolve(url);
       }
     );
   });
@@ -77,14 +95,21 @@ export type SignOptions = {
   /** 图片缩略（imageMogr2） */
   thumb?: boolean;
   thumbWidth?: number;
-  /** 视频封面帧（数据万象 ci-process=snapshot） */
+  /** 视频封面帧（数据万象 ci-process=snapshot）——仅临时预览，持久封面请用 posterKey */
   snapshot?: boolean;
   /** 截帧时间（秒），默认 0.1 */
   snapshotTime?: number;
+  /** 展示链文字水印（无法防录屏） */
+  watermark?: boolean;
+  /** 水印文案，默认「陈庆.我爱你」 */
+  watermarkText?: string;
 };
 
 /** 图库/分享等批量签名的推荐并发上限 */
 export const SIGN_CONCURRENCY = 6;
+
+/** 列表签名默认 TTL（秒） */
+export const GALLERY_SIGN_TTL = 3600;
 
 /** 生成上传预签名 URL（PUT）——始终 COS 源站，不使用 CDN 域名 */
 export async function getUploadPresignedUrl(
@@ -123,7 +148,14 @@ export async function getUploadPresignedUrl(
   return { url, viaSts: false };
 }
 
-/** 生成访问签名 URL（GET）——可读时再换 CDN */
+function buildWatermarkQuery(text: string): string {
+  // watermark/2 = 文字水印；参数必须进入签名 Query
+  const t = ciUrlSafeBase64(text);
+  const fill = ciUrlSafeBase64('#FFFFFF');
+  return `watermark/2/text/${t}/fill/${fill}/fontsize/20/dissolve/40/gravity/southeast/dx/16/dy/16`;
+}
+
+/** 生成访问签名 URL（GET）——可读时换 CDN（ASCII 英文加速域） */
 export async function getSignedUrl(
   key: string,
   expires = 1800,
@@ -144,8 +176,13 @@ export async function getSignedUrl(
     query['format'] = 'jpg';
   } else if (options?.thumb) {
     const w = options.thumbWidth ?? cfg.thumbWidth;
-    // jpg 比 webp 兼容更好，避免部分环境缩略失败成灰块
+    // jpg 兼容更好；处理参数必须进签名
     query[`imageMogr2/thumbnail/${w}x${w}>/format/jpg`] = '';
+  }
+
+  if (options?.watermark) {
+    const text = (options.watermarkText || '陈庆.我爱你').trim() || '陈庆.我爱你';
+    query[buildWatermarkQuery(text)] = '';
   }
 
   const client = createClient(cfg);
@@ -167,6 +204,12 @@ export function generateKey(filename: string): string {
   const ext = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : 'bin';
   const random = Math.random().toString(36).slice(2, 10);
   return `media/${y}/${m}/${d}/${Date.now()}-${random}.${ext}`;
+}
+
+/** 由视频 key 推导海报对象键：xxx.mov → xxx-poster.jpg */
+export function posterKeyForVideo(videoKey: string): string {
+  const cleaned = videoKey.replace(/\.[^.]+$/, '');
+  return `${cleaned}-poster.jpg`;
 }
 
 export async function deleteObject(key: string): Promise<void> {
@@ -220,7 +263,7 @@ export async function getBucketRegion() {
   return { Bucket: cfg.bucket, Region: cfg.region, CDN: cfg.cdnDomain };
 }
 
-/** 服务端拉取对象流（绕过浏览器防盗链/CORS，用于封面同源代理） */
+/** 服务端拉取对象流（cover-src 限流兜底；有 poster 时不应依赖） */
 export async function getObjectStreamAsync(
   key: string,
   headers?: { Range?: string }
@@ -241,10 +284,11 @@ export async function getObjectStreamAsync(
   return client.getObjectStream(params) as unknown as NodeJS.ReadableStream;
 }
 
-/** 带响应头的对象读取（支持 Range，便于视频 metadata） */
+/** 带响应头的对象读取（支持 Range） */
 export async function getObjectBytes(
   key: string,
-  headers?: { Range?: string }
+  headers?: { Range?: string },
+  query?: Record<string, string>
 ): Promise<{
   body: Buffer;
   statusCode: number;
@@ -265,6 +309,9 @@ export async function getObjectBytes(
   };
   if (headers?.Range) {
     params.Headers = { Range: headers.Range };
+  }
+  if (query && Object.keys(query).length > 0) {
+    params.Query = query;
   }
   const data = await client.getObject(params);
   const hdrs = (data.headers || {}) as Record<string, string>;
@@ -307,4 +354,34 @@ export async function putObjectBuffer(
       }
     );
   });
+}
+
+/**
+ * 服务端用数据万象 CI snapshot 截帧并写入 *-poster.jpg。
+ * 需桶已绑定数据万象 / 媒体处理；失败返回 null（不抛）。
+ */
+export async function generateAndStoreVideoPoster(videoKey: string): Promise<string | null> {
+  if (!videoKey.startsWith('media/')) return null;
+  try {
+    const snap = await getObjectBytes(videoKey, undefined, {
+      'ci-process': 'snapshot',
+      time: '0.1',
+      format: 'jpg',
+    });
+    if (!snap.body || snap.body.length < 32) {
+      console.warn('CI snapshot empty:', videoKey);
+      return null;
+    }
+    // 简单校验是否像 JPEG
+    if (snap.body[0] !== 0xff || snap.body[1] !== 0xd8) {
+      console.warn('CI snapshot not jpeg:', videoKey, snap.contentType);
+      return null;
+    }
+    const posterKey = posterKeyForVideo(videoKey);
+    await putObjectBuffer(posterKey, snap.body, 'image/jpeg');
+    return posterKey;
+  } catch (err) {
+    console.warn('generateAndStoreVideoPoster failed:', videoKey, err);
+    return null;
+  }
 }
