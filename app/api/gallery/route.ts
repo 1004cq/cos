@@ -84,10 +84,11 @@ export async function GET(req: NextRequest) {
 
         if (isImage) {
           try {
+            // 列表禁止回退到原图 url，避免网格拉数 MB 原片
             thumbUrl = await getSignedUrl(m.key, LIST_SIGN_TTL, { thumb: true });
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
-            thumbUrl = url;
+            thumbUrl = null;
           }
         } else if (isVideo) {
           if (posterUrl) {
