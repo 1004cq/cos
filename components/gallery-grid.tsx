@@ -26,8 +26,9 @@ function GridCell({
   const isVideo = item.kind === 'video' || item.mimeType.startsWith('video/');
   const compact = isCompactGrid(columns);
   const tinyDuration = showTinyDuration(columns);
-  /** 有 poster/thumb 时优先静态图；失败或缺失时用签名视频 URL 截首帧（preload=metadata） */
-  const videoPreviewUrl = isVideo ? item.url : null;
+  /** 无海报时走同源 cover-src（绕过 COS 防盗链/CORS），仅 metadata 首帧 */
+  const videoPreviewUrl =
+    isVideo && !item.posterUrl ? `/api/gallery/cover-src/${item.id}` : null;
 
   function handleClick() {
     if (selectMode) onToggleSelect();
@@ -49,10 +50,11 @@ function GridCell({
       <MediaCover
         id={item.id}
         posterUrl={item.posterUrl}
-        thumbUrl={isVideo ? item.thumbUrl : item.thumbUrl || null}
+        thumbUrl={isVideo ? null : item.thumbUrl || null}
         videoUrl={videoPreviewUrl}
         isVideo={isVideo}
         showPlayBadge={isVideo}
+        className="absolute inset-0"
       />
 
       {isVideo && item.duration != null && (

@@ -219,3 +219,92 @@ export async function getBucketRegion() {
   const cfg = await loadConfig();
   return { Bucket: cfg.bucket, Region: cfg.region, CDN: cfg.cdnDomain };
 }
+
+/** 服务端拉取对象流（绕过浏览器防盗链/CORS，用于封面同源代理） */
+export async function getObjectStreamAsync(
+  key: string,
+  headers?: { Range?: string }
+): Promise<NodeJS.ReadableStream> {
+  if (!key.startsWith('media/')) {
+    throw new Error('非法的对象键');
+  }
+  const cfg = await loadConfig();
+  const client = createClient(cfg);
+  const params: COS.GetObjectParams = {
+    Bucket: cfg.bucket,
+    Region: cfg.region,
+    Key: key,
+  };
+  if (headers?.Range) {
+    params.Headers = { Range: headers.Range };
+  }
+  return client.getObjectStream(params) as unknown as NodeJS.ReadableStream;
+}
+
+/** 带响应头的对象读取（支持 Range，便于视频 metadata） */
+export async function getObjectBytes(
+  key: string,
+  headers?: { Range?: string }
+): Promise<{
+  body: Buffer;
+  statusCode: number;
+  contentType?: string;
+  contentLength?: string;
+  contentRange?: string;
+  acceptRanges?: string;
+}> {
+  if (!key.startsWith('media/')) {
+    throw new Error('非法的对象键');
+  }
+  const cfg = await loadConfig();
+  const client = createClient(cfg);
+  const params: COS.GetObjectParams = {
+    Bucket: cfg.bucket,
+    Region: cfg.region,
+    Key: key,
+  };
+  if (headers?.Range) {
+    params.Headers = { Range: headers.Range };
+  }
+  const data = await client.getObject(params);
+  const hdrs = (data.headers || {}) as Record<string, string>;
+  const body = Buffer.isBuffer(data.Body)
+    ? data.Body
+    : Buffer.from(data.Body as ArrayBuffer);
+  return {
+    body,
+    statusCode: data.statusCode || (headers?.Range ? 206 : 200),
+    contentType: hdrs['content-type'] || hdrs['Content-Type'],
+    contentLength: String(hdrs['content-length'] || hdrs['Content-Length'] || body.length),
+    contentRange: hdrs['content-range'] || hdrs['Content-Range'],
+    acceptRanges: hdrs['accept-ranges'] || hdrs['Accept-Ranges'] || 'bytes',
+  };
+}
+
+/** 上传字节到 COS（海报 jpg 等） */
+export async function putObjectBuffer(
+  key: string,
+  body: Buffer,
+  contentType: string
+): Promise<void> {
+  if (!key.startsWith('media/')) {
+    throw new Error('非法的对象键');
+  }
+  const cfg = await loadConfig();
+  const client = createClient(cfg);
+  await new Promise<void>((resolve, reject) => {
+    client.putObject(
+      {
+        Bucket: cfg.bucket,
+        Region: cfg.region,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      },
+      (err) => {
+        if (err) return reject(err);
+        resolve();
+      }
+    );
+  });
+}

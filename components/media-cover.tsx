@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  captureCoverFromVideoUrl,
   getCachedVideoCover,
   setCachedVideoCover,
 } from '@/lib/video-poster';
@@ -21,8 +20,8 @@ type Props = {
 };
 
 /**
- * 封面：poster → thumb → canvas 缓存 → muted metadata 视频帧 → 灰底+▶
- * 列表禁止 preload=auto。
+ * 封面：真实海报/图片缩略 → 内存缓存 → 可见时用 muted 视频截首帧 → 灰底+▶
+ * 视频不使用不可靠的 COS snapshot thumb。
  */
 export function MediaCover({
   id,
@@ -34,38 +33,52 @@ export function MediaCover({
   compact = false,
   className,
 }: Props) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const paintedRef = useRef(false);
+
   const [imgFailed, setImgFailed] = useState(false);
   const [coverDataUrl, setCoverDataUrl] = useState<string | null>(() =>
     getCachedVideoCover(id)
   );
   const [videoFrameFailed, setVideoFrameFailed] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [inView, setInView] = useState(false);
 
-  const staticSrc =
-    !imgFailed && (posterUrl || thumbUrl) ? posterUrl || thumbUrl! : null;
+  const imageSrc = !imgFailed
+    ? posterUrl || (!isVideo ? thumbUrl || null : null)
+    : null;
 
   useEffect(() => {
     setImgFailed(false);
     setVideoFrameFailed(false);
+    paintedRef.current = false;
     setCoverDataUrl(getCachedVideoCover(id));
   }, [id, posterUrl, thumbUrl, videoUrl]);
 
+  // 仅对进入视口的格子挂视频首帧，避免列表同时拉很多视频
   useEffect(() => {
-    if (staticSrc || coverDataUrl || !videoUrl || !isVideo) return;
-    let cancelled = false;
-    void (async () => {
-      const dataUrl = await captureCoverFromVideoUrl(id, videoUrl);
-      if (cancelled || !dataUrl) return;
-      setCoverDataUrl(dataUrl);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [staticSrc, coverDataUrl, videoUrl, id, isVideo]);
+    if (imageSrc || coverDataUrl || !isVideo || !videoUrl) return;
+    const el = rootRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setInView(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: '200px', threshold: 0.01 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [imageSrc, coverDataUrl, isVideo, videoUrl]);
 
-  const onVideoLoaded = () => {
-    const v = videoRef.current;
-    if (!v || v.videoWidth === 0) return;
+  const tryCaptureCanvas = (v: HTMLVideoElement) => {
+    if (v.videoWidth === 0) return;
     try {
       const canvas = document.createElement('canvas');
       const maxW = 480;
@@ -82,6 +95,78 @@ export function MediaCover({
       /* tainted canvas */
     }
   };
+
+  useEffect(() => {
+    if (
+      imageSrc ||
+      coverDataUrl ||
+      !isVideo ||
+      !videoUrl ||
+      !inView ||
+      videoFrameFailed
+    ) {
+      return;
+    }
+    const v = videoRef.current;
+    if (!v) return;
+
+    let cancelled = false;
+
+    const paint = async () => {
+      if (cancelled || paintedRef.current) return;
+      try {
+        v.muted = true;
+        v.defaultMuted = true;
+        v.playsInline = true;
+        v.setAttribute('playsinline', '');
+        v.setAttribute('webkit-playsinline', '');
+        try {
+          if (v.readyState >= 1) {
+            const t =
+              Number.isFinite(v.duration) && v.duration > 0
+                ? Math.min(0.1, v.duration * 0.01)
+                : 0.1;
+            v.currentTime = t;
+          }
+        } catch {
+          /* ignore */
+        }
+        try {
+          await v.play();
+        } catch {
+          /* ignore */
+        }
+        if (cancelled) return;
+        v.pause();
+        paintedRef.current = true;
+        tryCaptureCanvas(v);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onReady = () => {
+      void paint();
+      tryCaptureCanvas(v);
+    };
+
+    v.addEventListener('loadedmetadata', onReady);
+    v.addEventListener('loadeddata', onReady);
+    v.addEventListener('seeked', onReady);
+    if (v.readyState >= 1) void paint();
+
+    return () => {
+      cancelled = true;
+      v.removeEventListener('loadedmetadata', onReady);
+      v.removeEventListener('loadeddata', onReady);
+      v.removeEventListener('seeked', onReady);
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [imageSrc, coverDataUrl, isVideo, videoUrl, inView, videoFrameFailed, id]);
 
   const playBadge =
     showPlayBadge && isVideo ? (
@@ -106,12 +191,12 @@ export function MediaCover({
       </span>
     ) : null;
 
-  if (staticSrc) {
+  if (imageSrc) {
     return (
-      <span className={cn('relative block h-full w-full', className)}>
+      <span ref={rootRef} className={cn('relative block h-full w-full', className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={staticSrc}
+          src={imageSrc}
           alt=""
           className="h-full w-full object-cover"
           loading="lazy"
@@ -126,7 +211,7 @@ export function MediaCover({
 
   if (coverDataUrl) {
     return (
-      <span className={cn('relative block h-full w-full', className)}>
+      <span ref={rootRef} className={cn('relative block h-full w-full', className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={coverDataUrl}
@@ -142,23 +227,26 @@ export function MediaCover({
   if (isVideo && videoUrl && !videoFrameFailed) {
     return (
       <span
+        ref={rootRef}
         className={cn(
-          'relative block h-full w-full overflow-hidden bg-black',
+          'relative block h-full w-full overflow-hidden bg-zinc-800',
           className
         )}
       >
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          muted
-          playsInline
-          preload="metadata"
-          className="h-full w-full object-cover"
-          onLoadedData={onVideoLoaded}
-          onSeeked={onVideoLoaded}
-          onError={() => setVideoFrameFailed(true)}
-          aria-hidden
-        />
+        {inView ? (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            muted
+            playsInline
+            preload="metadata"
+            className="pointer-events-none h-full w-full object-cover"
+            onError={() => setVideoFrameFailed(true)}
+            aria-hidden
+          />
+        ) : (
+          <span className="absolute inset-0 bg-zinc-800" />
+        )}
         {playBadge}
       </span>
     );
@@ -166,6 +254,7 @@ export function MediaCover({
 
   return (
     <span
+      ref={rootRef}
       className={cn(
         'relative flex h-full w-full items-center justify-center bg-zinc-800 text-white/50',
         className

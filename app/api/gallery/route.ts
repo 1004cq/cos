@@ -79,16 +79,12 @@ export async function GET(req: NextRequest) {
             console.warn('gallery image thumb failed:', m.key, err);
           }
         } else if (isVideo) {
-          // 优先海报；否则尝试 COS 截帧
+          // 仅使用已上传的海报。COS 数据万象 snapshot 未开通时 URL 会失败并造成灰块，
+          // 前端对无海报视频用签名播放地址截首帧（preload=metadata）。
           if (posterUrl) {
             thumbUrl = posterUrl;
           } else {
-            try {
-              thumbUrl = await getSignedUrl(m.key, 1800, { snapshot: true });
-            } catch (err) {
-              console.warn('gallery video snapshot failed:', m.key, err);
-              thumbUrl = null;
-            }
+            thumbUrl = null;
           }
         }
 

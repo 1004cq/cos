@@ -71,15 +71,8 @@ async function buildShareItems(mediaList: MediaRow[]) {
         thumbUrl = null;
       }
     } else if (isVideo) {
-      if (posterUrl) {
-        thumbUrl = posterUrl;
-      } else {
-        try {
-          thumbUrl = await getSignedUrl(m.key, 900, { snapshot: true });
-        } catch {
-          thumbUrl = null;
-        }
-      }
+      // 与 gallery 一致：无海报时不走 COS snapshot（易灰块），交给前端首帧
+      thumbUrl = posterUrl;
     }
 
     return {
