@@ -31,12 +31,18 @@ function seekVideo(video: HTMLVideoElement, time: number): Promise<void> {
     const cleanup = () => {
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
+      window.clearTimeout(timer);
     };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('seek timeout'));
+    }, 8000);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onError);
     try {
       const d = video.duration;
-      const t = Number.isFinite(d) && d > 0 ? Math.min(time, Math.max(0, d * 0.01)) : time;
+      const t =
+        Number.isFinite(d) && d > 0 ? Math.min(Math.max(time, 0), Math.max(0, d - 0.05)) : time;
       video.currentTime = t;
     } catch (err) {
       cleanup();
@@ -62,36 +68,59 @@ function drawFrame(video: HTMLVideoElement): string | null {
     ctx.drawImage(video, 0, 0, cw, ch);
     return canvas.toDataURL('image/jpeg', 0.82);
   } catch {
-    // 跨域未 CORS 时 canvas 会被污染
     return null;
   }
 }
 
-/** 从本地 File 截取第一帧 → Blob（上传海报用，同源无 CORS 问题） */
+/** 从本地 File 截取帧 → Blob（上传海报用） */
 export async function capturePosterBlobFromFile(file: File): Promise<Blob | null> {
   const objectUrl = URL.createObjectURL(file);
   try {
     const video = document.createElement('video');
     video.muted = true;
+    video.defaultMuted = true;
     video.playsInline = true;
-    video.preload = 'metadata';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.preload = 'auto';
     video.src = objectUrl;
 
     await new Promise<void>((resolve, reject) => {
-      video.onloadeddata = () => resolve();
-      video.onerror = () => reject(new Error('video load failed'));
+      const t = window.setTimeout(() => reject(new Error('metadata timeout')), 15000);
+      video.onloadeddata = () => {
+        window.clearTimeout(t);
+        resolve();
+      };
+      video.onloadedmetadata = () => {
+        /* continue wait loadeddata */
+      };
+      video.onerror = () => {
+        window.clearTimeout(t);
+        reject(new Error('video load failed'));
+      };
     });
 
     try {
-      await seekVideo(video, 0.1);
+      await video.play();
+      video.pause();
     } catch {
-      /* 部分格式无法 seek，仍尝试当前帧 */
+      /* iOS 可能拦截，仍尝试 seek */
     }
 
-    const dataUrl = drawFrame(video);
-    if (!dataUrl) return null;
-    const res = await fetch(dataUrl);
-    return res.blob();
+    for (const t of [0.1, 0.5, 1, 0]) {
+      try {
+        await seekVideo(video, t);
+        const dataUrl = drawFrame(video);
+        if (dataUrl) {
+          const res = await fetch(dataUrl);
+          return res.blob();
+        }
+      } catch {
+        /* try next time */
+      }
+    }
+
+    return null;
   } catch {
     return null;
   } finally {
@@ -99,10 +128,6 @@ export async function capturePosterBlobFromFile(file: File): Promise<Blob | null
   }
 }
 
-/**
- * 从远程/签名视频 URL 截帧；成功则写入 cache。
- * 失败返回 null（调用方可用 muted video 元素作视觉回退）。
- */
 export async function captureCoverFromVideoUrl(
   id: string,
   videoUrl: string
