@@ -10,6 +10,8 @@ const COS_KEYS = [
   'cos.thumbWidth',
   'cos.watermarkEnabled',
   'cos.watermarkText',
+  'cos.imageStyleThumb',
+  'cos.imageStyleFull',
 ] as const;
 
 export type CosRuntimeConfig = {
@@ -22,6 +24,13 @@ export type CosRuntimeConfig = {
   /** 展示链是否加水印（无法防录屏） */
   watermarkEnabled: boolean;
   watermarkText: string;
+  /**
+   * 数据万象「样式」名（原图保护开启时，浏览器签名 URL 必须带样式，否则 403 please use style）
+   * 缩略图样式；空则使用 imageMogr2 动态处理（原图保护关闭时可用）
+   */
+  imageStyleThumb: string;
+  /** 详情/原图样式；空则签裸对象（原图保护开启时会 403） */
+  imageStyleFull: string;
   /** 配置来源：database | env | mixed */
   source: 'database' | 'env' | 'mixed';
 };
@@ -95,17 +104,29 @@ async function getSettingRaw(key: string): Promise<string | null> {
  * 仅当数据库无此 key 时才回退 env。
  */
 export async function getCosConfig(): Promise<CosRuntimeConfig> {
-  const [dbId, dbKey, dbBucket, dbRegion, dbCdn, dbThumb, dbWmEnabled, dbWmText] =
-    await Promise.all([
-      getSettingRaw('cos.secretId'),
-      getSettingRaw('cos.secretKey'),
-      getSettingRaw('cos.bucket'),
-      getSettingRaw('cos.region'),
-      getSettingRaw('cos.cdnDomain'),
-      getSettingRaw('cos.thumbWidth'),
-      getSettingRaw('cos.watermarkEnabled'),
-      getSettingRaw('cos.watermarkText'),
-    ]);
+  const [
+    dbId,
+    dbKey,
+    dbBucket,
+    dbRegion,
+    dbCdn,
+    dbThumb,
+    dbWmEnabled,
+    dbWmText,
+    dbStyleThumb,
+    dbStyleFull,
+  ] = await Promise.all([
+    getSettingRaw('cos.secretId'),
+    getSettingRaw('cos.secretKey'),
+    getSettingRaw('cos.bucket'),
+    getSettingRaw('cos.region'),
+    getSettingRaw('cos.cdnDomain'),
+    getSettingRaw('cos.thumbWidth'),
+    getSettingRaw('cos.watermarkEnabled'),
+    getSettingRaw('cos.watermarkText'),
+    getSettingRaw('cos.imageStyleThumb'),
+    getSettingRaw('cos.imageStyleFull'),
+  ]);
 
   let fromDb = 0;
   const secretId = dbId ? (fromDb++, dbId) : process.env.COS_SECRET_ID || '';
@@ -155,6 +176,22 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
     watermarkText = process.env.COS_WATERMARK_TEXT.trim();
   }
 
+  let imageStyleThumb = '';
+  if (dbStyleThumb !== null) {
+    fromDb++;
+    imageStyleThumb = dbStyleThumb.trim();
+  } else if (process.env.COS_IMAGE_STYLE_THUMB?.trim()) {
+    imageStyleThumb = process.env.COS_IMAGE_STYLE_THUMB.trim();
+  }
+
+  let imageStyleFull = '';
+  if (dbStyleFull !== null) {
+    fromDb++;
+    imageStyleFull = dbStyleFull.trim();
+  } else if (process.env.COS_IMAGE_STYLE_FULL?.trim()) {
+    imageStyleFull = process.env.COS_IMAGE_STYLE_FULL.trim();
+  }
+
   const source: CosRuntimeConfig['source'] =
     fromDb === 0 ? 'env' : fromDb >= 4 ? 'database' : 'mixed';
 
@@ -167,6 +204,8 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
     thumbWidth,
     watermarkEnabled,
     watermarkText,
+    imageStyleThumb,
+    imageStyleFull,
     source,
   };
 }
@@ -194,6 +233,8 @@ export async function getCosConfigPublic() {
     thumbWidth: c.thumbWidth,
     watermarkEnabled: c.watermarkEnabled,
     watermarkText: c.watermarkText,
+    imageStyleThumb: c.imageStyleThumb,
+    imageStyleFull: c.imageStyleFull,
     source: c.source,
     ready: Boolean(c.secretId && c.secretKey && c.bucket && c.region),
   };
@@ -209,6 +250,8 @@ export type CosConfigInput = {
   thumbWidth?: number;
   watermarkEnabled?: boolean;
   watermarkText?: string;
+  imageStyleThumb?: string;
+  imageStyleFull?: string;
 };
 
 export async function saveCosConfig(input: CosConfigInput): Promise<void> {
@@ -252,6 +295,20 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   if (input.watermarkText !== undefined) {
     const t = input.watermarkText.trim().slice(0, 40);
     await upsert('cos.watermarkText', t || '陈庆.我爱你', false);
+  }
+  if (input.imageStyleThumb !== undefined) {
+    await upsert(
+      'cos.imageStyleThumb',
+      input.imageStyleThumb.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64),
+      false
+    );
+  }
+  if (input.imageStyleFull !== undefined) {
+    await upsert(
+      'cos.imageStyleFull',
+      input.imageStyleFull.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64),
+      false
+    );
   }
 }
 

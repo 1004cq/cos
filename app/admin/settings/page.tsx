@@ -17,6 +17,8 @@ type CosPublicConfig = {
   thumbWidth: number;
   watermarkEnabled?: boolean;
   watermarkText?: string;
+  imageStyleThumb?: string;
+  imageStyleFull?: string;
   source: 'database' | 'env' | 'mixed';
   ready: boolean;
 };
@@ -65,6 +67,8 @@ export default function AdminSettingsPage() {
   const [thumbWidth, setThumbWidth] = useState(480);
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
   const [watermarkText, setWatermarkText] = useState('陈庆.我爱你');
+  const [imageStyleThumb, setImageStyleThumb] = useState('');
+  const [imageStyleFull, setImageStyleFull] = useState('');
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const [accountUsername, setAccountUsername] = useState('');
@@ -100,6 +104,8 @@ export default function AdminSettingsPage() {
       setThumbWidth(Number(data.thumbWidth) || 480);
       setWatermarkEnabled(Boolean(data.watermarkEnabled));
       setWatermarkText(data.watermarkText || '陈庆.我爱你');
+      setImageStyleThumb(data.imageStyleThumb || '');
+      setImageStyleFull(data.imageStyleFull || '');
       setSecretId('');
       setSecretKey('');
 
@@ -129,6 +135,8 @@ export default function AdminSettingsPage() {
       thumbWidth: Number(thumbWidth) || 480,
       watermarkEnabled,
       watermarkText: watermarkText.trim() || '陈庆.我爱你',
+      imageStyleThumb: imageStyleThumb.trim(),
+      imageStyleFull: imageStyleFull.trim(),
     };
     const sid = secretId.trim();
     const skey = secretKey.trim();
@@ -179,6 +187,8 @@ export default function AdminSettingsPage() {
       setThumbWidth(Number(data.thumbWidth) || thumbWidth);
       setWatermarkEnabled(Boolean(data.watermarkEnabled));
       setWatermarkText(data.watermarkText || watermarkText);
+      setImageStyleThumb(data.imageStyleThumb || '');
+      setImageStyleFull(data.imageStyleFull || '');
       setSecretId('');
       setSecretKey('');
 
@@ -608,6 +618,36 @@ export default function AdminSettingsPage() {
             开启后，图库/分享的缩略图与图片详情预览经数据万象叠加水印（参数签入签名）。
             管理端 /api/sign 原图下载不加。水印无法防录屏或截图。
           </p>
+        </div>
+
+        <div className="space-y-3 rounded-2xl glass p-4">
+          <p className="text-sm font-medium">图片样式名（原图保护）</p>
+          <p className="text-xs text-amber-800 bg-amber-50/80 rounded-xl px-3 py-2">
+            若图片全部 403「please use style」，请到腾讯云数据万象关闭「原图保护」，
+            或在控制台创建样式后把样式名填在下面（例如 thumb / full）。
+          </p>
+          <div>
+            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+              列表缩略样式名
+            </label>
+            <input
+              className="input-glass text-sm"
+              value={imageStyleThumb}
+              onChange={(e) => setImageStyleThumb(e.target.value)}
+              placeholder="如 thumb（可留空）"
+            />
+          </div>
+          <div>
+            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+              详情/全图样式名
+            </label>
+            <input
+              className="input-glass text-sm"
+              value={imageStyleFull}
+              onChange={(e) => setImageStyleFull(e.target.value)}
+              placeholder="如 full（可留空）"
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2">

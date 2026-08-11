@@ -61,6 +61,8 @@ export async function GET(req: NextRequest) {
     ]);
 
     const wm = Boolean(cfg.watermarkEnabled);
+    const styleThumb = (cfg.imageStyleThumb || '').trim();
+    const styleFull = (cfg.imageStyleFull || '').trim();
 
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
@@ -69,26 +71,41 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        // 图片详情预览可加水印；视频原片与管理端下载不加
+        // 图片详情：有全图样式则用样式（兼容原图保护）；否则可加水印动态处理
         const url = await getSignedUrl(
           m.key,
           ORIGIN_SIGN_TTL,
-          isImage && wm ? { watermark: true } : undefined
+          isImage
+            ? styleFull
+              ? { style: styleFull }
+              : wm
+                ? { watermark: true }
+                : undefined
+            : undefined
         );
         let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
 
         if (m.posterKey && m.posterKey.startsWith('media/')) {
           try {
-            posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, {
-              thumb: true,
-              watermark: wm,
-            });
+            posterUrl = await getSignedUrl(
+              m.posterKey,
+              LIST_SIGN_TTL,
+              styleThumb
+                ? { style: styleThumb }
+                : { thumb: true, watermark: wm }
+            );
           } catch {
             try {
-              posterUrl = await getSignedUrl(m.posterKey, LIST_SIGN_TTL, {
-                watermark: wm,
-              });
+              posterUrl = await getSignedUrl(
+                m.posterKey,
+                LIST_SIGN_TTL,
+                styleFull
+                  ? { style: styleFull }
+                  : wm
+                    ? { watermark: true }
+                    : undefined
+              );
             } catch (err) {
               console.warn('gallery poster sign failed:', m.posterKey, err);
             }
@@ -98,10 +115,13 @@ export async function GET(req: NextRequest) {
         if (isImage) {
           try {
             // 列表禁止回退到原图 url，避免网格拉数 MB 原片
-            thumbUrl = await getSignedUrl(m.key, LIST_SIGN_TTL, {
-              thumb: true,
-              watermark: wm,
-            });
+            thumbUrl = await getSignedUrl(
+              m.key,
+              LIST_SIGN_TTL,
+              styleThumb
+                ? { style: styleThumb }
+                : { thumb: true, watermark: wm }
+            );
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
             thumbUrl = null;

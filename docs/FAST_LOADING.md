@@ -9,7 +9,32 @@
 
 ---
 
-## 1. 目标与原则
+## 排查：图片上传成功但全部加载失败（403 please use style）
+
+COS/数据万象返回：
+
+```text
+AccessDenied — The image can not be accessed, please use style.
+```
+
+说明桶开启了 **原图保护**：浏览器签名 URL 必须带「图片样式」，裸对象或仅 `imageMogr2` 动态参数会被拒。
+
+### 立刻恢复（推荐）
+
+1. 打开 [腾讯云数据万象](https://console.cloud.tencent.com/ci) → 绑定你的桶  
+2. **图片处理 → 原图保护 → 关闭**  
+3. 强制刷新网站，图片应立即恢复（无需改代码）
+
+### 若必须保留原图保护
+
+1. 在数据万象创建样式，例如：  
+   - `thumb`：`thumbnail/480x480>/format/jpg`  
+   - `full`：接近原图或 `quality/90`  
+2. 管理后台 COS 设置填写「列表缩略样式名 / 详情样式名」，或环境变量：  
+   `COS_IMAGE_STYLE_THUMB=thumb`、`COS_IMAGE_STYLE_FULL=full`  
+3. 签名会带 `style=<名>`（已纳入签名 Query）
+
+---
 
 ### 1.1 「秒加载」分别指什么
 

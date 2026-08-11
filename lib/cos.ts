@@ -87,6 +87,12 @@ export type SignOptions = {
    */
   watermark?: boolean;
   watermarkText?: string;
+  /**
+   * 数据万象「图片样式」名。开启原图保护后必须带样式，否则 COS 返回
+   * AccessDenied: The image can not be accessed, please use style.
+   * 会签入 Query `style=<name>`。
+   */
+  style?: string;
 };
 
 export const SIGN_CONCURRENCY = 6;
@@ -157,11 +163,16 @@ export async function getSignedUrl(
   const safeExpires = Math.min(Math.max(expires, 60), 3600);
   const query: Record<string, string> = {};
 
+  const styleName = (options?.style || '').trim();
+
   if (options?.snapshot) {
     const t = options.snapshotTime ?? 0.1;
     query['ci-process'] = 'snapshot';
     query['time'] = String(t);
     query['format'] = 'jpg';
+  } else if (styleName) {
+    // 原图保护：必须用控制台预置样式名（处理规则写在样式里）
+    query['style'] = styleName;
   } else {
     const parts: string[] = [];
     if (options?.thumb) {

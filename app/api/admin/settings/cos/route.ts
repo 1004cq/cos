@@ -39,6 +39,8 @@ export async function PUT(req: NextRequest) {
       thumbWidth,
       watermarkEnabled,
       watermarkText,
+      imageStyleThumb,
+      imageStyleFull,
       test,
     } = body;
 
@@ -53,6 +55,10 @@ export async function PUT(req: NextRequest) {
         watermarkEnabled === undefined ? undefined : Boolean(watermarkEnabled),
       watermarkText:
         watermarkText === undefined ? undefined : String(watermarkText),
+      imageStyleThumb:
+        imageStyleThumb === undefined ? undefined : String(imageStyleThumb),
+      imageStyleFull:
+        imageStyleFull === undefined ? undefined : String(imageStyleFull),
     });
 
     const config = await getCosConfigPublic();
