@@ -5,13 +5,15 @@ import { getSignedUrl } from '@/lib/cos';
 import { prisma } from '@/lib/prisma';
 
 /**
- * 强制签名访问接口
+ * 强制签名访问接口（管理端）
  * 所有图片/视频展示必须走这里，禁止前端直接拼 COS 链接
  *
  * Query:
  *   key      - COS 对象键（必填）
  *   expires  - 有效期秒数，默认 1800（30分钟），最大 3600
  *   thumb    - 1/true 时返回数据万象缩略图（列表用）；灯箱请勿传
+ *
+ * 注意：本接口不加展示水印（管理端原图下载）；公开图库水印由 /api/gallery 控制。
  */
 export async function GET(req: NextRequest) {
   try {

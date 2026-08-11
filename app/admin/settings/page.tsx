@@ -15,6 +15,8 @@ type CosPublicConfig = {
   cdnDomainEffective?: string;
   cdnIgnoredUnsafe?: boolean;
   thumbWidth: number;
+  watermarkEnabled?: boolean;
+  watermarkText?: string;
   source: 'database' | 'env' | 'mixed';
   ready: boolean;
 };
@@ -61,6 +63,8 @@ export default function AdminSettingsPage() {
   const [region, setRegion] = useState('ap-hongkong');
   const [cdnDomain, setCdnDomain] = useState('');
   const [thumbWidth, setThumbWidth] = useState(480);
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkText, setWatermarkText] = useState('陈庆.我爱你');
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const [accountUsername, setAccountUsername] = useState('');
@@ -94,6 +98,8 @@ export default function AdminSettingsPage() {
       // 展示库里的值；若含中文会提示清空
       setCdnDomain(data.cdnDomain || '');
       setThumbWidth(Number(data.thumbWidth) || 480);
+      setWatermarkEnabled(Boolean(data.watermarkEnabled));
+      setWatermarkText(data.watermarkText || '陈庆.我爱你');
       setSecretId('');
       setSecretKey('');
 
@@ -121,6 +127,8 @@ export default function AdminSettingsPage() {
       // 始终提交（含空字符串），以便清空数据库中的旧 CDN
       cdnDomain: cdnDomain.trim(),
       thumbWidth: Number(thumbWidth) || 480,
+      watermarkEnabled,
+      watermarkText: watermarkText.trim() || '陈庆.我爱你',
     };
     const sid = secretId.trim();
     const skey = secretKey.trim();
@@ -169,6 +177,8 @@ export default function AdminSettingsPage() {
       setRegion(data.region || region);
       setCdnDomain(data.cdnDomain ?? '');
       setThumbWidth(Number(data.thumbWidth) || thumbWidth);
+      setWatermarkEnabled(Boolean(data.watermarkEnabled));
+      setWatermarkText(data.watermarkText || watermarkText);
       setSecretId('');
       setSecretKey('');
 
@@ -573,6 +583,30 @@ export default function AdminSettingsPage() {
           />
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
             120–1200，默认 480（数据万象列表缩略图）
+          </p>
+        </div>
+
+        <div className="space-y-3 rounded-2xl glass p-4">
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={watermarkEnabled}
+              onChange={(e) => setWatermarkEnabled(e.target.checked)}
+              className="rounded border-black/20"
+            />
+            展示链文字水印（可选）
+          </label>
+          <input
+            className="input-glass text-sm"
+            value={watermarkText}
+            maxLength={40}
+            disabled={!watermarkEnabled}
+            onChange={(e) => setWatermarkText(e.target.value)}
+            placeholder="陈庆.我爱你"
+          />
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            开启后，图库/分享的缩略图与图片详情预览经数据万象叠加水印（参数签入签名）。
+            管理端 /api/sign 原图下载不加。水印无法防录屏或截图。
           </p>
         </div>
 

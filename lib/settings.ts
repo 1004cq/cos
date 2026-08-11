@@ -8,6 +8,8 @@ const COS_KEYS = [
   'cos.region',
   'cos.cdnDomain',
   'cos.thumbWidth',
+  'cos.watermarkEnabled',
+  'cos.watermarkText',
 ] as const;
 
 export type CosRuntimeConfig = {
@@ -17,6 +19,9 @@ export type CosRuntimeConfig = {
   region: string;
   cdnDomain: string;
   thumbWidth: number;
+  /** 展示链是否加水印（无法防录屏） */
+  watermarkEnabled: boolean;
+  watermarkText: string;
   /** 配置来源：database | env | mixed */
   source: 'database' | 'env' | 'mixed';
 };
@@ -90,14 +95,17 @@ async function getSettingRaw(key: string): Promise<string | null> {
  * 仅当数据库无此 key 时才回退 env。
  */
 export async function getCosConfig(): Promise<CosRuntimeConfig> {
-  const [dbId, dbKey, dbBucket, dbRegion, dbCdn, dbThumb] = await Promise.all([
-    getSettingRaw('cos.secretId'),
-    getSettingRaw('cos.secretKey'),
-    getSettingRaw('cos.bucket'),
-    getSettingRaw('cos.region'),
-    getSettingRaw('cos.cdnDomain'),
-    getSettingRaw('cos.thumbWidth'),
-  ]);
+  const [dbId, dbKey, dbBucket, dbRegion, dbCdn, dbThumb, dbWmEnabled, dbWmText] =
+    await Promise.all([
+      getSettingRaw('cos.secretId'),
+      getSettingRaw('cos.secretKey'),
+      getSettingRaw('cos.bucket'),
+      getSettingRaw('cos.region'),
+      getSettingRaw('cos.cdnDomain'),
+      getSettingRaw('cos.thumbWidth'),
+      getSettingRaw('cos.watermarkEnabled'),
+      getSettingRaw('cos.watermarkText'),
+    ]);
 
   let fromDb = 0;
   const secretId = dbId ? (fromDb++, dbId) : process.env.COS_SECRET_ID || '';
@@ -129,6 +137,24 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
   );
   if (dbThumb !== null) fromDb++;
 
+  let watermarkEnabled = false;
+  if (dbWmEnabled !== null) {
+    fromDb++;
+    watermarkEnabled = dbWmEnabled === '1' || dbWmEnabled === 'true';
+  } else {
+    watermarkEnabled =
+      process.env.COS_WATERMARK_ENABLED === '1' ||
+      process.env.COS_WATERMARK_ENABLED === 'true';
+  }
+
+  let watermarkText = '陈庆.我爱你';
+  if (dbWmText !== null) {
+    fromDb++;
+    watermarkText = dbWmText.trim() || '陈庆.我爱你';
+  } else if (process.env.COS_WATERMARK_TEXT?.trim()) {
+    watermarkText = process.env.COS_WATERMARK_TEXT.trim();
+  }
+
   const source: CosRuntimeConfig['source'] =
     fromDb === 0 ? 'env' : fromDb >= 4 ? 'database' : 'mixed';
 
@@ -139,6 +165,8 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
     region,
     cdnDomain,
     thumbWidth,
+    watermarkEnabled,
+    watermarkText,
     source,
   };
 }
@@ -164,6 +192,8 @@ export async function getCosConfigPublic() {
     cdnDomainEffective: c.cdnDomain,
     cdnIgnoredUnsafe: Boolean(displayCdn && !c.cdnDomain),
     thumbWidth: c.thumbWidth,
+    watermarkEnabled: c.watermarkEnabled,
+    watermarkText: c.watermarkText,
     source: c.source,
     ready: Boolean(c.secretId && c.secretKey && c.bucket && c.region),
   };
@@ -177,6 +207,8 @@ export type CosConfigInput = {
   /** 传空字符串表示清空 CDN */
   cdnDomain?: string;
   thumbWidth?: number;
+  watermarkEnabled?: boolean;
+  watermarkText?: string;
 };
 
 export async function saveCosConfig(input: CosConfigInput): Promise<void> {
@@ -213,6 +245,13 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   }
   if (input.thumbWidth !== undefined) {
     await upsert('cos.thumbWidth', String(input.thumbWidth), false);
+  }
+  if (input.watermarkEnabled !== undefined) {
+    await upsert('cos.watermarkEnabled', input.watermarkEnabled ? '1' : '0', false);
+  }
+  if (input.watermarkText !== undefined) {
+    const t = input.watermarkText.trim().slice(0, 40);
+    await upsert('cos.watermarkText', t || '陈庆.我爱你', false);
   }
 }
 

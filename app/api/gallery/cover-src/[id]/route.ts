@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Readable } from 'node:stream';
 import { prisma } from '@/lib/prisma';
-import { getObjectBytes, getObjectStreamAsync } from '@/lib/cos';
+import { getObjectBytes } from '@/lib/cos';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -61,7 +60,14 @@ export async function GET(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: '非视频' }, { status: 400 });
     }
 
-    // 已有海报时仍允许（兼容旧前端），但不鼓励大量走代理
+    // 已有海报：列表/条应使用 posterUrl，禁止经 Node 再拉视频
+    if (media.posterKey && media.posterKey.startsWith('media/')) {
+      return NextResponse.json(
+        { error: '已有海报，请使用 posterUrl，勿经 cover-src 拉视频' },
+        { status: 409 }
+      );
+    }
+
     const range = req.headers.get('range') || undefined;
 
     if (range) {

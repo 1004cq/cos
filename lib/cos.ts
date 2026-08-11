@@ -80,9 +80,33 @@ export type SignOptions = {
   thumbWidth?: number;
   snapshot?: boolean;
   snapshotTime?: number;
+  /**
+   * 是否叠加文字水印（展示链）。
+   * true：用水印文案（options.watermarkText 或配置默认「陈庆.我爱你」）
+   * false/省略：不加（管理端原图下载请勿传 true）
+   */
+  watermark?: boolean;
+  watermarkText?: string;
 };
 
 export const SIGN_CONCURRENCY = 6;
+
+/** 数据万象 URL 安全 Base64（+→-、/→_、去=） */
+export function ciUrlSafeBase64(input: string): string {
+  return Buffer.from(input, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function buildWatermarkRule(text: string): string {
+  const t = text.trim() || '陈庆.我爱你';
+  const textB64 = ciUrlSafeBase64(t);
+  const fillB64 = ciUrlSafeBase64('#FFFFFF');
+  // 右下角半透明白字；参数整体作为 Query key（value 空）以便签入签名
+  return `watermark/2/text/${textB64}/fontsize/18/fill/${fillB64}/dissolve/55/gravity/southeast/dx/12/dy/12`;
+}
 
 export async function getUploadPresignedUrl(
   key: string,
@@ -138,9 +162,20 @@ export async function getSignedUrl(
     query['ci-process'] = 'snapshot';
     query['time'] = String(t);
     query['format'] = 'jpg';
-  } else if (options?.thumb) {
-    const w = options.thumbWidth ?? cfg.thumbWidth;
-    query[`imageMogr2/thumbnail/${w}x${w}>/format/jpg`] = '';
+  } else {
+    const parts: string[] = [];
+    if (options?.thumb) {
+      const w = options.thumbWidth ?? cfg.thumbWidth;
+      parts.push(`imageMogr2/thumbnail/${w}x${w}>/format/jpg`);
+    }
+    if (options?.watermark) {
+      const text = options.watermarkText?.trim() || cfg.watermarkText || '陈庆.我爱你';
+      parts.push(buildWatermarkRule(text));
+    }
+    if (parts.length > 0) {
+      // 缩略与水印用管道拼接，整段作为 query key 签入签名
+      query[parts.join('|')] = '';
+    }
   }
 
   const client = createClient(cfg);

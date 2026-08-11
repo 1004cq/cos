@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
 import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
+import { getCosConfig } from '@/lib/settings';
 import { recordVisit } from '@/lib/visit';
 import { mapWithConcurrency } from '@/lib/utils';
 
@@ -48,30 +49,44 @@ async function loadShareMedia(share: {
 }
 
 async function buildShareItems(mediaList: MediaRow[]) {
+  const cfg = await getCosConfig();
+  const wm = Boolean(cfg.watermarkEnabled);
+
   return mapWithConcurrency(mediaList, SIGN_CONCURRENCY, async (m) => {
     const isImage = m.mimeType.startsWith('image/');
     const isVideo = m.mimeType.startsWith('video/');
 
-    const url = await getSignedUrl(m.key, 900);
+    const url = await getSignedUrl(
+      m.key,
+      900,
+      isImage && wm ? { watermark: true } : undefined
+    );
     let posterUrl: string | null = null;
     let thumbUrl: string | null = null;
 
     if (m.posterKey && m.posterKey.startsWith('media/')) {
       try {
-        posterUrl = await getSignedUrl(m.posterKey, 900);
+        posterUrl = await getSignedUrl(m.posterKey, 900, {
+          thumb: true,
+          watermark: wm,
+        });
       } catch {
-        posterUrl = null;
+        try {
+          posterUrl = await getSignedUrl(m.posterKey, 900, { watermark: wm });
+        } catch {
+          posterUrl = null;
+        }
       }
     }
 
     if (isImage) {
       try {
-        thumbUrl = await getSignedUrl(m.key, 900, { thumb: true });
+        thumbUrl = await getSignedUrl(m.key, 900, { thumb: true, watermark: wm });
       } catch {
         thumbUrl = null;
       }
     } else if (isVideo) {
-      // 与 gallery 一致：无海报时不走 COS snapshot（易灰块），交给前端首帧
+      // 与 gallery 一致：无海报时不走 COS snapshot
       thumbUrl = posterUrl;
     }
 

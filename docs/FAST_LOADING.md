@@ -255,9 +255,18 @@ COS_SECRET_KEY=...
 # 仅英文 CDN 域；中文域或未接入时留空
 COS_CDN_DOMAIN=
 COS_THUMB_WIDTH=480
+# 可选：展示链文字水印（无法防录屏）
+COS_WATERMARK_ENABLED=false
+COS_WATERMARK_TEXT=陈庆.我爱你
 ```
 
 后台「CDN / 自定义域名」：**可清空且保存后不得被 env 错误回填中文域**。
+
+### 6.4 展示水印（可选）
+
+- `getSignedUrl(..., { watermark: true })` 拼数据万象 `watermark/2/text/<URL安全Base64>/...`，与 `imageMogr2` 可用 `|` 管道；参数签入签名  
+- 图库 / 分享的 thumb 与图片详情预览可开；**管理端 `/api/sign` 原图下载不加**  
+- **无法防录屏或截图**，仅作轻度版权提示  
 
 ---
 
