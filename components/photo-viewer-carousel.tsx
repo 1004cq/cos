@@ -11,15 +11,40 @@ function blockSave(e: React.SyntheticEvent) {
   e.preventDefault();
 }
 
+function unloadVideo(v: HTMLVideoElement | null | undefined) {
+  if (!v) return;
+  try {
+    v.pause();
+  } catch {
+    /* ignore */
+  }
+  try {
+    v.removeAttribute('src');
+    v.load();
+  } catch {
+    /* ignore */
+  }
+}
+
 type SlideProps = {
   item: LightboxItem;
   active: boolean;
   imageScale: number;
   onScaleChange: (scale: number) => void;
+  pan: { x: number; y: number };
+  onPanChange: (pan: { x: number; y: number }) => void;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
 };
 
-function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: SlideProps) {
+function ViewerSlide({
+  item,
+  active,
+  imageScale,
+  onScaleChange,
+  pan,
+  onPanChange,
+  videoRef,
+}: SlideProps) {
   const isVideo = item.mimeType.startsWith('video/');
   const thumbUrl = item.posterUrl || item.thumbUrl || null;
   const fullUrl = item.url || '';
@@ -30,13 +55,13 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   const [showSpinner, setShowSpinner] = useState(!thumbUrl && Boolean(fullUrl));
   const [posterFailed, setPosterFailed] = useState(false);
   const [needBigPlay, setNeedBigPlay] = useState(false);
-  const [showUnmute, setShowUnmute] = useState(false);
   const lastTapRef = useRef(0);
   const pinchStartScale = useRef(1);
 
   useEffect(() => {
     if (!active || isVideo) return;
     onScaleChange(1);
+    onPanChange({ x: 0, y: 0 });
 
     const thumb = item.thumbUrl || null;
     const full = item.url || '';
@@ -90,7 +115,7 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
         probe.src = '';
       }
     };
-  }, [item.id, item.url, item.thumbUrl, isVideo, active, onScaleChange]);
+  }, [item.id, item.url, item.thumbUrl, isVideo, active, onScaleChange, onPanChange]);
 
   const bindPinch = usePinch(
     ({ offset: [s], first, last, event }) => {
@@ -102,7 +127,9 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
       const next = Math.min(3.5, Math.max(1, pinchStartScale.current * s));
       onScaleChange(next);
       if (last) {
-        onScaleChange(next < 1.15 ? 1 : next);
+        const snapped = next < 1.15 ? 1 : next;
+        onScaleChange(snapped);
+        if (snapped === 1) onPanChange({ x: 0, y: 0 });
       }
     },
     { pointer: { touch: true }, scaleBounds: { min: 0.5, max: 3.5 }, rubberband: 0.1 }
@@ -111,7 +138,12 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
   function onDoubleClick(e: React.MouseEvent) {
     if (isVideo) return;
     e.stopPropagation();
-    onScaleChange(imageScale > 1 ? 1 : 2);
+    if (imageScale > 1) {
+      onScaleChange(1);
+      onPanChange({ x: 0, y: 0 });
+    } else {
+      onScaleChange(2);
+    }
   }
 
   function onTouchEndZoom(e: React.TouchEvent) {
@@ -119,32 +151,34 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       e.preventDefault();
-      onScaleChange(imageScale > 1 ? 1 : 2);
+      if (imageScale > 1) {
+        onScaleChange(1);
+        onPanChange({ x: 0, y: 0 });
+      } else {
+        onScaleChange(2);
+      }
     }
     lastTapRef.current = now;
   }
 
+  /** 进入/切到视频：默认有声尝试 play；策略拒绝则大播放钮，点击后再有声 play。不强制 muted=true */
   useEffect(() => {
     if (!isVideo || !active) {
       setNeedBigPlay(false);
-      setShowUnmute(false);
       return;
     }
 
-    setNeedBigPlay(false);
     const v = videoRef?.current;
     if (!v) return;
 
     let cancelled = false;
-    v.muted = true;
+    v.muted = false;
+    v.defaultMuted = false;
     v.playsInline = true;
     v.setAttribute('playsinline', '');
     v.setAttribute('webkit-playsinline', '');
-    setShowUnmute(true);
+    v.removeAttribute('muted');
 
-    const syncMuteChip = () => {
-      if (!cancelled) setShowUnmute(v.muted);
-    };
     const onPlaying = () => {
       if (!cancelled) setNeedBigPlay(false);
     };
@@ -153,6 +187,8 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
 
     const tryPlay = async () => {
       if (cancelled) return;
+      v.muted = false;
+      v.defaultMuted = false;
       try {
         await v.play();
         if (cancelled) return;
@@ -174,18 +210,12 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
     }
 
     v.addEventListener('playing', onPlaying);
-    v.addEventListener('volumechange', syncMuteChip);
 
     return () => {
       cancelled = true;
       if (onReady) v.removeEventListener('loadeddata', onReady);
       v.removeEventListener('playing', onPlaying);
-      v.removeEventListener('volumechange', syncMuteChip);
-      try {
-        v.pause();
-      } catch {
-        /* ignore */
-      }
+      unloadVideo(v);
     };
   }, [isVideo, active, item.id, fullUrl, videoRef]);
 
@@ -215,8 +245,9 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
                   e.stopPropagation();
                   const el = videoRef?.current;
                   if (!el) return;
-                  el.muted = true;
-                  setShowUnmute(true);
+                  el.muted = false;
+                  el.defaultMuted = false;
+                  el.removeAttribute('muted');
                   void el.play().then(
                     () => setNeedBigPlay(false),
                     () => setNeedBigPlay(true)
@@ -228,21 +259,6 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </span>
-              </button>
-            )}
-            {showUnmute && !needBigPlay && (
-              <button
-                type="button"
-                className="absolute bottom-[22%] right-4 z-[2] rounded-full bg-black/55 px-3 py-1.5 text-xs text-white/95 backdrop-blur-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const el = videoRef?.current;
-                  if (!el) return;
-                  el.muted = false;
-                  setShowUnmute(false);
-                }}
-              >
-                取消静音
               </button>
             )}
           </>
@@ -299,8 +315,12 @@ function ViewerSlide({ item, active, imageScale, onScaleChange, videoRef }: Slid
             status === 'error' && !item.thumbUrl ? 'opacity-0' : 'opacity-100'
           )}
           style={{
-            transform: active ? `scale(${imageScale})` : undefined,
-            transition: imageScale === 1 ? 'transform 0.25s ease-out' : 'none',
+            transform: active
+              ? `translate(${pan.x}px, ${pan.y}px) scale(${imageScale})`
+              : undefined,
+            transition: imageScale === 1 && pan.x === 0 && pan.y === 0
+              ? 'transform 0.25s ease-out'
+              : 'none',
           }}
           onLoad={() => {
             if (displayUrl === fullUrl || !fullUrl) {
@@ -354,7 +374,26 @@ export function PhotoViewerCarousel({
   );
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const touchRef = useRef({ x0: 0, y0: 0, axis: null as 'x' | 'y' | null, moved: false });
+  const [suppressTransition, setSuppressTransition] = useState(false);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragXRef = useRef(0);
+  const panRef = useRef({ x: 0, y: 0 });
+  const animLockRef = useRef(false);
+
+  const setPanBoth = useCallback((next: { x: number; y: number }) => {
+    panRef.current = next;
+    setPan(next);
+  }, []);
+
+  const touchRef = useRef({
+    x0: 0,
+    y0: 0,
+    panX0: 0,
+    panY0: 0,
+    axis: null as 'x' | 'y' | null,
+    moved: false,
+    mode: null as 'swipe' | 'pan' | null,
+  });
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -366,37 +405,92 @@ export function PhotoViewerCarousel({
     return () => ro.disconnect();
   }, []);
 
+  /** index 变化：重置位移/缩放，避免 residual transform 回弹 */
   useEffect(() => {
+    animLockRef.current = false;
+    dragXRef.current = 0;
+    panRef.current = { x: 0, y: 0 };
+    setSuppressTransition(true);
     setDragX(0);
+    setPanBoth({ x: 0, y: 0 });
     onScaleChange(1);
-  }, [index, onScaleChange]);
+    const id = window.requestAnimationFrame(() => setSuppressTransition(false));
+    return () => window.cancelAnimationFrame(id);
+  }, [index, onScaleChange, setPanBoth]);
+
+  /** 关闭灯箱 / 卸载时停播并卸 src */
+  useEffect(() => {
+    return () => {
+      unloadVideo(videoRef.current);
+    };
+  }, [videoRef]);
 
   const commit = useCallback(
     (nextIndex: number, animateTo: number) => {
+      if (animLockRef.current) return;
+      if (nextIndex === index) {
+        dragXRef.current = 0;
+        setDragX(0);
+        return;
+      }
+      animLockRef.current = true;
+      dragXRef.current = animateTo;
       setDragX(animateTo);
       window.setTimeout(() => {
+        setSuppressTransition(true);
         onChange(nextIndex);
+        dragXRef.current = 0;
         setDragX(0);
+        // transition 抑制在 index effect 里再打开
       }, 280);
     },
-    [onChange]
+    [index, onChange]
   );
 
   function onTouchStart(e: React.TouchEvent) {
+    if (animLockRef.current) return;
     const t = e.touches[0];
     if (!t) return;
-    touchRef.current = { x0: t.clientX, y0: t.clientY, axis: null, moved: false };
+    touchRef.current = {
+      x0: t.clientX,
+      y0: t.clientY,
+      panX0: panRef.current.x,
+      panY0: panRef.current.y,
+      axis: null,
+      moved: false,
+      mode: null,
+    };
+    if (imageScale > 1) {
+      touchRef.current.mode = 'pan';
+      setIsDragging(true);
+      return;
+    }
     if (!swipeEnabled || imageScale !== 1) return;
+    touchRef.current.mode = 'swipe';
     setIsDragging(true);
   }
 
   function onTouchMove(e: React.TouchEvent) {
-    if (!swipeEnabled || imageScale !== 1) return;
+    if (animLockRef.current) return;
     const t = e.touches[0];
     if (!t) return;
     const dx = t.clientX - touchRef.current.x0;
     const dy = t.clientY - touchRef.current.y0;
     if (Math.abs(dx) > 6 || Math.abs(dy) > 6) touchRef.current.moved = true;
+
+    // 放大：只平移，不切页
+    if (touchRef.current.mode === 'pan' || imageScale > 1) {
+      const next = {
+        x: touchRef.current.panX0 + dx,
+        y: touchRef.current.panY0 + dy,
+      };
+      panRef.current = next;
+      setPanBoth(next);
+      return;
+    }
+
+    if (!swipeEnabled || imageScale !== 1 || touchRef.current.mode !== 'swipe') return;
+
     if (!touchRef.current.axis) {
       if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) touchRef.current.axis = 'x';
       else if (Math.abs(dy) > 10) touchRef.current.axis = 'y';
@@ -406,6 +500,7 @@ export function PhotoViewerCarousel({
     let offset = dx;
     if (index === 0 && offset > 0) offset *= 0.32;
     if (index === items.length - 1 && offset < 0) offset *= 0.32;
+    dragXRef.current = offset;
     setDragX(offset);
   }
 
@@ -413,32 +508,56 @@ export function PhotoViewerCarousel({
     setIsDragging(false);
 
     const wasTap = !touchRef.current.moved && touchRef.current.axis == null;
-    if (wasTap) {
+    if (wasTap && touchRef.current.mode !== 'pan') {
       onMediaTap?.();
       touchRef.current.axis = null;
+      touchRef.current.mode = null;
       return;
     }
 
-    if (!swipeEnabled || imageScale !== 1 || touchRef.current.axis !== 'x') {
-      if (dragX !== 0) setDragX(0);
+    // 放大平移结束：不切页
+    if (touchRef.current.mode === 'pan' || imageScale > 1) {
       touchRef.current.axis = null;
+      touchRef.current.mode = null;
       return;
     }
 
+    if (
+      animLockRef.current ||
+      !swipeEnabled ||
+      imageScale !== 1 ||
+      touchRef.current.axis !== 'x'
+    ) {
+      if (dragXRef.current !== 0) {
+        dragXRef.current = 0;
+        setDragX(0);
+      }
+      touchRef.current.axis = null;
+      touchRef.current.mode = null;
+      return;
+    }
+
+    const dx = dragXRef.current;
     const threshold = Math.max(56, vw * 0.18);
-    if (dragX < -threshold && index < items.length - 1) {
+    // 未达阈值：回弹当前页，绝不先改 index
+    if (dx < -threshold && index < items.length - 1) {
       commit(index + 1, -vw);
-    } else if (dragX > threshold && index > 0) {
+    } else if (dx > threshold && index > 0) {
       commit(index - 1, vw);
     } else {
+      dragXRef.current = 0;
       setDragX(0);
     }
     touchRef.current.axis = null;
+    touchRef.current.mode = null;
   }
 
   const indices = [index - 1, index, index + 1].filter((i) => i >= 0 && i < items.length);
   const trackWidth = vw * indices.length;
   const baseOffset = indices.indexOf(index) * vw;
+  // 拖拽中 / 切页瞬间对齐：无 transition，避免「滑过去又弹回」
+  const useTransition =
+    isDragging || suppressTransition ? 'none' : 'transform 0.28s ease-out';
 
   return (
     <div
@@ -447,6 +566,7 @@ export function PhotoViewerCarousel({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
       onClick={() => {
         // desktop / mouse
         if (!('ontouchstart' in window)) onMediaTap?.();
@@ -459,7 +579,7 @@ export function PhotoViewerCarousel({
             width: trackWidth || '100%',
             height: '100%',
             transform: `translateX(${-baseOffset + dragX}px)`,
-            transition: isDragging ? 'none' : 'transform 0.28s ease-out',
+            transition: useTransition,
           }}
         >
           {indices.map((i) => (
@@ -473,7 +593,9 @@ export function PhotoViewerCarousel({
                 active={i === index}
                 imageScale={i === index ? imageScale : 1}
                 onScaleChange={onScaleChange}
-                videoRef={videoRef}
+                pan={i === index ? pan : { x: 0, y: 0 }}
+                onPanChange={setPanBoth}
+                videoRef={i === index ? videoRef : undefined}
               />
             </div>
           ))}

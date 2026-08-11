@@ -76,6 +76,7 @@ export function PhotoViewerVideoBar({ videoRef, active, onPlayingChange }: Props
     v.addEventListener('pause', onPause);
     v.addEventListener('seeking', onSeeking);
     v.addEventListener('seeked', onSeeked);
+    v.addEventListener('volumechange', syncMeta);
     syncMeta();
     setPlaying(!v.paused);
     onPlayingChange?.(!v.paused);
@@ -89,6 +90,7 @@ export function PhotoViewerVideoBar({ videoRef, active, onPlayingChange }: Props
       v.removeEventListener('pause', onPause);
       v.removeEventListener('seeking', onSeeking);
       v.removeEventListener('seeked', onSeeked);
+      v.removeEventListener('volumechange', syncMeta);
     };
   }, [videoRef, active, onPlayingChange]);
 
@@ -96,6 +98,10 @@ export function PhotoViewerVideoBar({ videoRef, active, onPlayingChange }: Props
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
+      // 用户手势：有声播放（不强制静音）
+      v.muted = false;
+      v.defaultMuted = false;
+      setMuted(false);
       void v.play().catch(() => undefined);
     } else {
       v.pause();

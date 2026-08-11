@@ -135,6 +135,25 @@ export function Lightbox({
     clearHideTimer();
   }, [index, clearHideTimer]);
 
+  /** 关闭灯箱：停播并卸掉 src，避免后台继续拉流 */
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      if (!v) return;
+      try {
+        v.pause();
+      } catch {
+        /* ignore */
+      }
+      try {
+        v.removeAttribute('src');
+        v.load();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (videoPlaying && chromeVisible) {
       scheduleAutoHide();
@@ -320,9 +339,13 @@ export function Lightbox({
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
         style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
-        onPointerDown={() => {
+        onPointerDown={(e) => {
+          e.stopPropagation();
           if (videoPlaying) scheduleAutoHide();
         }}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
       >
         {isVideo && (
           <PhotoViewerVideoBar
