@@ -1,9 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { MoreHorizontal, Search, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Lightbox } from '@/components/lightbox';
 import { GalleryGrid, type DaySection } from '@/components/gallery-grid';
 import { GalleryPinchGrid } from '@/components/gallery-pinch-grid';
@@ -87,11 +86,8 @@ export default function HomePage() {
   const [density, setDensity] = useState<GalleryDensity>('all');
   const [headerDateKey, setHeaderDateKey] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const preset = DENSITY_PRESETS[density];
@@ -160,45 +156,8 @@ export default function HomePage() {
     if (idx >= 0) setLightboxIndex(idx);
   }
 
-  function toggleSelect(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function exitSelectMode() {
-    setSelectMode(false);
-    setSelected(new Set());
-  }
-
-  async function batchDeleteSelected() {
-    const ids = Array.from(selected);
-    if (ids.length === 0 || !isAdmin) return;
-    if (!confirm(`确定删除 ${ids.length} 项？`)) return;
-    setDeleting(true);
-    setError('');
-    try {
-      const res = await fetch('/api/media/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete', ids, deleteFromCos: false }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || '删除失败');
-      setItems((prev) => prev.filter((i) => !selected.has(i.id)));
-      exitSelectMode();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : '删除失败');
-    } finally {
-      setDeleting(false);
-    }
-  }
-
   async function handleDeleteOne(id: string) {
-    if (!isAdmin) return;
+    if (!isAdmin || deleting) return;
     setDeleting(true);
     try {
       const res = await fetch('/api/media/batch', {
@@ -229,70 +188,11 @@ export default function HomePage() {
       >
         <div className="flex items-start justify-between gap-2 px-4 pt-2 pb-2 min-h-[52px]">
           <div className="min-w-0 flex-1">
-            {selectMode ? (
-              <>
-                <button
-                  type="button"
-                  className="text-[17px] font-semibold text-[#007AFF]"
-                  onClick={exitSelectMode}
-                >
-                  取消
-                </button>
-                <p className="text-[13px] text-[var(--photos-muted)] mt-0.5">
-                  已选择 {selected.size} 项
-                </p>
-              </>
-            ) : (
-              <>
-                <h1 className="text-[34px] font-bold leading-tight tracking-tight text-black">
-                  图库
-                </h1>
-                {!loading && headerLabel && (
-                  <p className="text-[15px] font-semibold text-black/80 mt-0.5">{headerLabel}</p>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 pt-1">
-            {selectMode ? (
-              <>
-                {isAdmin && selected.size > 0 && (
-                  <button
-                    type="button"
-                    disabled={deleting}
-                    className="photos-pill-btn text-red-500"
-                    onClick={() => void batchDeleteSelected()}
-                  >
-                    删除
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="photos-pill-btn photos-pill-btn-primary"
-                  onClick={exitSelectMode}
-                >
-                  完成
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="photos-pill-btn"
-                  onClick={() => setSelectMode(true)}
-                >
-                  选择
-                </button>
-                <button
-                  type="button"
-                  className="photos-icon-btn"
-                  aria-label="更多"
-                  onClick={() => setMenuOpen((v) => !v)}
-                >
-                  <MoreHorizontal className="w-5 h-5" />
-                </button>
-              </>
+            <h1 className="text-[34px] font-bold leading-tight tracking-tight text-black">
+              图库
+            </h1>
+            {!loading && headerLabel && (
+              <p className="text-[15px] font-semibold text-black/80 mt-0.5">{headerLabel}</p>
             )}
           </div>
         </div>
@@ -323,36 +223,6 @@ export default function HomePage() {
             </button>
           </div>
         )}
-
-        {menuOpen && !selectMode && (
-          <div className="absolute right-4 z-30 mt-1 rounded-xl bg-white shadow-lg border border-black/5 py-1 min-w-[160px]">
-            {isAdmin && (
-              <>
-                <Link
-                  href="/admin/upload"
-                  className="block px-4 py-2.5 text-[15px] hover:bg-black/5"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  上传
-                </Link>
-                <Link
-                  href="/admin"
-                  className="block px-4 py-2.5 text-[15px] hover:bg-black/5"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  管理后台
-                </Link>
-              </>
-            )}
-            <Link
-              href="/albums"
-              className="block px-4 py-2.5 text-[15px] hover:bg-black/5"
-              onClick={() => setMenuOpen(false)}
-            >
-              相册
-            </Link>
-          </div>
-        )}
       </header>
 
       {error && <p className="text-center px-4 py-3 text-sm text-red-500">{error}</p>}
@@ -381,9 +251,9 @@ export default function HomePage() {
                 <GalleryGrid
                   sections={sections}
                   columns={columns}
-                  selectMode={selectMode}
-                  selectedIds={selected}
-                  onToggleSelect={toggleSelect}
+                  selectMode={false}
+                  selectedIds={new Set()}
+                  onToggleSelect={() => undefined}
                   onOpen={openItem}
                   onSectionVisible={density === 'all' ? onSectionVisible : undefined}
                   showInlineHeaders={preset.showSectionHeaders}
@@ -395,17 +265,15 @@ export default function HomePage() {
         )}
       </main>
 
-      {!selectMode && (
-        <GalleryTabBar
-          density={density}
-          onDensityChange={setDensity}
-          searchActive={searchOpen}
-          onSearchClick={() => {
-            setSearchOpen((v) => !v);
-            if (searchOpen) setSearchQuery('');
-          }}
-        />
-      )}
+      <GalleryTabBar
+        density={density}
+        onDensityChange={setDensity}
+        searchActive={searchOpen}
+        onSearchClick={() => {
+          setSearchOpen((v) => !v);
+          if (searchOpen) setSearchQuery('');
+        }}
+      />
 
       {lightboxIndex !== null && (
         <Lightbox
