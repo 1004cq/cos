@@ -156,11 +156,12 @@ export default function UploadPage() {
 
         const media = await mediaRes.json();
 
-        // 视频：尽量截帧上传海报（失败不影响主文件入库成功）
+        // 视频：尽量截帧上传海报（失败则服务端 CI 截帧；均失败不影响主文件入库）
         if (
           media.id &&
           (putType.startsWith('video/') || isVideoFilenameOrMime(snapshot.file.name, putType))
         ) {
+          let posterUploaded = false;
           try {
             const posterBlob = await capturePosterBlobFromFile(snapshot.file);
             if (posterBlob && posterBlob.size > 0) {
@@ -187,11 +188,21 @@ export default function UploadPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ posterKey }),
                   });
+                  posterUploaded = true;
                 }
               }
             }
           } catch (posterErr) {
-            console.warn('video poster upload skipped:', posterErr);
+            console.warn('video poster client capture skipped:', posterErr);
+          }
+
+          // 客户端截帧失败 → 服务端 CI 截帧降级
+          if (!posterUploaded) {
+            try {
+              await fetch(`/api/media/${media.id}/poster`, { method: 'POST' });
+            } catch (ciErr) {
+              console.warn('video poster CI fallback skipped:', ciErr);
+            }
           }
         }
 
