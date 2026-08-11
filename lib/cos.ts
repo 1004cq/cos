@@ -1,7 +1,6 @@
 import COS from 'cos-nodejs-sdk-v5';
 import { getCosConfig, type CosRuntimeConfig } from './settings';
 
-// STS 可选：若项目有 lib/sts.ts 可再接入
 let stsModule: {
   getUploadStsCredential?: (s: number) => Promise<any>;
   isStsEnabled?: () => boolean;
@@ -30,11 +29,11 @@ function createClient(cfg: CosRuntimeConfig, token?: string) {
   });
 }
 
-/** 仅用于「读取/播放」签名；上传 PUT 绝不能换 host，否则会 404 */
+/** 仅 GET 可读时换 CDN；中文域不应配置在此 */
 function applyCdnHost(url: string, cdnDomain: string): string {
   if (!cdnDomain) return url;
   const host = cdnDomain.replace(/^https?:\/\//, '').split('/')[0];
-  if (!host) return url;
+  if (!host || /[^\x00-\x7F]/.test(host)) return url;
   try {
     const u = new URL(url);
     u.host = host;
@@ -66,27 +65,25 @@ function getObjectUrlWithClient(
       },
       (err, data) => {
         if (err) return reject(err);
-        // 签名始终返回 COS 源站 URL；CDN 保持空，避免错 host 导致灰块/404
-        resolve(data.Url);
+        let url = data.Url;
+        if (method === 'GET' && cfg.cdnDomain) {
+          url = applyCdnHost(url, cfg.cdnDomain);
+        }
+        resolve(url);
       }
     );
   });
 }
 
 export type SignOptions = {
-  /** 图片缩略（imageMogr2） */
   thumb?: boolean;
   thumbWidth?: number;
-  /** 视频封面帧（数据万象 ci-process=snapshot） */
   snapshot?: boolean;
-  /** 截帧时间（秒），默认 0.1 */
   snapshotTime?: number;
 };
 
-/** 图库/分享等批量签名的推荐并发上限 */
 export const SIGN_CONCURRENCY = 6;
 
-/** 生成上传预签名 URL（PUT）——始终 COS 源站，不使用 CDN 域名 */
 export async function getUploadPresignedUrl(
   key: string,
   contentType: string,
@@ -123,7 +120,6 @@ export async function getUploadPresignedUrl(
   return { url, viaSts: false };
 }
 
-/** 生成访问签名 URL（GET）——可读时再换 CDN */
 export async function getSignedUrl(
   key: string,
   expires = 1800,
@@ -144,7 +140,6 @@ export async function getSignedUrl(
     query['format'] = 'jpg';
   } else if (options?.thumb) {
     const w = options.thumbWidth ?? cfg.thumbWidth;
-    // jpg 比 webp 兼容更好，避免部分环境缩略失败成灰块
     query[`imageMogr2/thumbnail/${w}x${w}>/format/jpg`] = '';
   }
 
@@ -188,7 +183,6 @@ export async function deleteObject(key: string): Promise<void> {
   });
 }
 
-/** 读取 COS 对象字节大小（用于核对原文件是否无损入库） */
 export async function headObjectSize(key: string): Promise<number | null> {
   if (!key.startsWith('media/')) {
     throw new Error('非法的对象键');
@@ -220,7 +214,6 @@ export async function getBucketRegion() {
   return { Bucket: cfg.bucket, Region: cfg.region, CDN: cfg.cdnDomain };
 }
 
-/** 服务端拉取对象流（绕过浏览器防盗链/CORS，用于封面同源代理） */
 export async function getObjectStreamAsync(
   key: string,
   headers?: { Range?: string }
@@ -241,7 +234,6 @@ export async function getObjectStreamAsync(
   return client.getObjectStream(params) as unknown as NodeJS.ReadableStream;
 }
 
-/** 带响应头的对象读取（支持 Range，便于视频 metadata） */
 export async function getObjectBytes(
   key: string,
   headers?: { Range?: string }
@@ -281,7 +273,6 @@ export async function getObjectBytes(
   };
 }
 
-/** 上传字节到 COS（海报 jpg 等） */
 export async function putObjectBuffer(
   key: string,
   body: Buffer,
