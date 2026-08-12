@@ -46,6 +46,7 @@ export default function AdminVisitsPage() {
   const [page, setPage] = useState(1);
   const [ipInput, setIpInput] = useState('');
   const [pathInput, setPathInput] = useState('');
+  const [kindFilter, setKindFilter] = useState('');
   const [ipFilter, setIpFilter] = useState('');
   const [pathFilter, setPathFilter] = useState('');
   const [data, setData] = useState<VisitsResponse | null>(null);
@@ -63,6 +64,7 @@ export default function AdminVisitsPage() {
       });
       if (ipFilter) params.set('ip', ipFilter);
       if (pathFilter) params.set('path', pathFilter);
+      if (kindFilter) params.set('kind', kindFilter);
 
       const res = await fetch(`/api/admin/visits?${params}`);
       if (!res.ok) {
@@ -75,7 +77,7 @@ export default function AdminVisitsPage() {
     } finally {
       setLoading(false);
     }
-  }, [days, page, ipFilter, pathFilter]);
+  }, [days, page, ipFilter, pathFilter, kindFilter]);
 
   useEffect(() => {
     void load();
@@ -93,7 +95,15 @@ export default function AdminVisitsPage() {
     setPathInput('');
     setIpFilter('');
     setPathFilter('');
+    setKindFilter('');
     setPage(1);
+  }
+
+  function kindLabel(kind: string): string {
+    if (kind === 'share') return '分享';
+    if (kind === 'page') return '主站';
+    if (kind === 'api') return 'API';
+    return kind || '—';
   }
 
   const summary = data?.summary;
@@ -104,7 +114,7 @@ export default function AdminVisitsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">访客</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            分享访问记录 · IP / 路径统计（不记录密码与 COS 签名）
+            主站图库与分享访问 · 含时间 / IP / 类型（不记录密码与 COS 签名）
           </p>
         </div>
         <div className="flex gap-1 rounded-xl glass p-1">
@@ -158,7 +168,7 @@ export default function AdminVisitsPage() {
           <p className="text-3xl font-semibold tracking-tight">
             {loading && !summary ? '—' : (summary?.totalVisits ?? 0)}
           </p>
-          {(ipFilter || pathFilter) && (
+          {(ipFilter || pathFilter || kindFilter) && (
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
               当前为筛选后结果
             </p>
@@ -195,14 +205,38 @@ export default function AdminVisitsPage() {
         </div>
         <input
           className="input-glass !py-2 text-sm flex-1 min-w-[140px]"
-          placeholder="筛选路径（包含）"
+          placeholder="筛选路径（包含，如 / 或 /share）"
           value={pathInput}
           onChange={(e) => setPathInput(e.target.value)}
         />
+        <select
+          className="input-glass !py-2 !w-auto text-sm"
+          value={kindFilter}
+          onChange={(e) => {
+            setKindFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">全部类型</option>
+          <option value="page">主站 page</option>
+          <option value="share">分享 share</option>
+        </select>
+        <button
+          type="button"
+          className="btn-ghost !py-2 text-sm"
+          onClick={() => {
+            setPathInput('/');
+            setPathFilter('/');
+            setKindFilter('page');
+            setPage(1);
+          }}
+        >
+          仅主站 /
+        </button>
         <button type="submit" className="btn-primary !py-2 text-sm">
           筛选
         </button>
-        {(ipFilter || pathFilter) && (
+        {(ipFilter || pathFilter || kindFilter) && (
           <button type="button" onClick={clearFilters} className="btn-ghost !py-2 text-sm">
             清除
           </button>
@@ -324,7 +358,7 @@ export default function AdminVisitsPage() {
           </p>
         ) : !data?.items.length ? (
           <p className="text-sm p-8 text-center" style={{ color: 'var(--text-muted)' }}>
-            暂无访问记录。打开分享链接后会出现在这里。
+            暂无访问记录。打开主站图库或分享链接后会出现在这里。
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -335,6 +369,7 @@ export default function AdminVisitsPage() {
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <th className="px-4 py-2.5 font-medium whitespace-nowrap">时间</th>
+                  <th className="px-4 py-2.5 font-medium">类型</th>
                   <th className="px-4 py-2.5 font-medium">IP</th>
                   <th className="px-4 py-2.5 font-medium">路径</th>
                   <th className="px-4 py-2.5 font-medium">分享 Token</th>
@@ -344,8 +379,20 @@ export default function AdminVisitsPage() {
               <tbody className="divide-y divide-white/40">
                 {data.items.map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-2.5 whitespace-nowrap text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <td className="px-4 py-2.5 whitespace-nowrap text-xs font-medium">
                       {formatDateTime(item.createdAt)}
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span
+                        className={cn(
+                          'inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium',
+                          item.kind === 'share'
+                            ? 'bg-violet-100 text-violet-700'
+                            : 'bg-blue-100 text-blue-700'
+                        )}
+                      >
+                        {kindLabel(item.kind)}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs">{item.ip}</td>
                     <td className="px-4 py-2.5 font-mono text-xs max-w-[200px] truncate" title={item.path}>

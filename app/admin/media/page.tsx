@@ -34,8 +34,18 @@ type MediaItem = {
   mimeType: string;
   size: number;
   createdAt: string;
+  takenAt?: string | null;
   album?: { id: string; title: string } | null;
 };
+
+/** datetime-local 控件值（本地时区） */
+function toDatetimeLocalValue(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function AdminMediaPage() {
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -57,7 +67,9 @@ export default function AdminMediaPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareIds, setShareIds] = useState<string[]>([]);
   const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
+  const [takenAtDrafts, setTakenAtDrafts] = useState<Record<string, string>>({});
   const [savingTitleId, setSavingTitleId] = useState<string | null>(null);
+  const [savingTakenAtId, setSavingTakenAtId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // 翻页/搜索变化时清空选中；列表刷新本身不清空（避免勾选被冲掉）
@@ -127,10 +139,13 @@ export default function AdminMediaPage() {
         }
 
         const drafts: Record<string, string> = {};
+        const takenDrafts: Record<string, string> = {};
         for (const m of list) {
           drafts[m.id] = m.title ?? '';
+          takenDrafts[m.id] = toDatetimeLocalValue(m.takenAt);
         }
         setTitleDrafts(drafts);
+        setTakenAtDrafts(takenDrafts);
         void loadThumbs(list);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : '加载失败');
@@ -295,6 +310,47 @@ export default function AdminMediaPage() {
     }
   }
 
+  async function saveTakenAt(id: string) {
+    const draft = (takenAtDrafts[id] ?? '').trim();
+    setSavingTakenAtId(id);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const payload =
+        draft === ''
+          ? { takenAt: null }
+          : { takenAt: new Date(draft).toISOString() };
+      if (draft && Number.isNaN(new Date(draft).getTime())) {
+        throw new Error('拍摄时间格式无效');
+      }
+      const res = await fetch(`/api/media/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '保存时间失败');
+      const nextTaken =
+        data.takenAt == null
+          ? null
+          : typeof data.takenAt === 'string'
+            ? data.takenAt
+            : new Date(data.takenAt).toISOString();
+      setItems((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, takenAt: nextTaken } : m))
+      );
+      setTakenAtDrafts((prev) => ({
+        ...prev,
+        [id]: toDatetimeLocalValue(nextTaken),
+      }));
+      setSuccessMsg(nextTaken ? '拍摄/展示时间已保存' : '已清空拍摄时间（将按入库时间排序）');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '保存时间失败');
+    } finally {
+      setSavingTakenAtId(null);
+    }
+  }
+
   const lightboxItems: LightboxItem[] = useMemo(
     () =>
       items.map((m) => ({
@@ -304,6 +360,8 @@ export default function AdminMediaPage() {
         filename: m.filename,
         title: m.title,
         mimeType: m.mimeType,
+        takenAt: m.takenAt,
+        createdAt: m.createdAt,
       })),
     [items, thumbs]
   );
@@ -347,7 +405,7 @@ export default function AdminMediaPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">媒体库</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            共 {total} 项 · 勾选复选框多选；点击缩略图预览 · 批量操作见下方工具条
+            共 {total} 项 · 列表视图可改标题与拍摄/展示时间 · 勾选后批量操作
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -541,6 +599,9 @@ export default function AdminMediaPage() {
           {items.map((item) => {
             const draft = titleDrafts[item.id] ?? '';
             const dirty = draft.trim() !== (item.title ?? '').trim();
+            const takenDraft = takenAtDrafts[item.id] ?? '';
+            const takenDirty =
+              takenDraft !== toDatetimeLocalValue(item.takenAt);
             return (
               <li
                 key={item.id}
@@ -593,14 +654,81 @@ export default function AdminMediaPage() {
                         保存标题
                       </button>
                     </div>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <label
+                        className="text-xs shrink-0"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        拍摄/展示时间
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className="input-glass !py-1.5 text-sm"
+                        value={takenDraft}
+                        onChange={(e) =>
+                          setTakenAtDrafts((prev) => ({
+                            ...prev,
+                            [item.id]: e.target.value,
+                          }))
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || savingTakenAtId === item.id || !takenDirty}
+                        onClick={() => void saveTakenAt(item.id)}
+                        className="btn-ghost !py-1.5 !px-2 text-xs inline-flex items-center gap-1 disabled:opacity-40"
+                        title="保存拍摄时间；清空后按入库时间排序"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        保存时间
+                      </button>
+                      {takenDraft && (
+                        <button
+                          type="button"
+                          disabled={busy || savingTakenAtId === item.id}
+                          onClick={() => {
+                            setTakenAtDrafts((prev) => ({ ...prev, [item.id]: '' }));
+                            void (async () => {
+                              setSavingTakenAtId(item.id);
+                              setError('');
+                              try {
+                                const res = await fetch(`/api/media/${item.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ takenAt: null }),
+                                });
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok) throw new Error(data.error || '清空失败');
+                                setItems((prev) =>
+                                  prev.map((m) =>
+                                    m.id === item.id ? { ...m, takenAt: null } : m
+                                  )
+                                );
+                                setSuccessMsg('已清空拍摄时间（将按入库时间排序）');
+                              } catch (e: unknown) {
+                                setError(e instanceof Error ? e.message : '清空失败');
+                              } finally {
+                                setSavingTakenAtId(null);
+                              }
+                            })();
+                          }}
+                          className="btn-ghost !py-1.5 !px-2 text-xs disabled:opacity-40"
+                        >
+                          清空并保存
+                        </button>
+                      )}
+                    </div>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {formatBytes(item.size)} · {item.album?.title || '未归类'}
+                      {formatBytes(item.size)} · {item.album?.title || '未归类'} · 入库{' '}
+                      {formatDateTime(item.createdAt)}
+                      {item.takenAt ? ` · 展示 ${formatDateTime(item.takenAt)}` : ''}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   <time className="text-xs hidden md:block" style={{ color: 'var(--text-muted)' }}>
-                    {formatDateTime(item.createdAt)}
+                    {formatDateTime(item.takenAt || item.createdAt)}
                   </time>
                   <button
                     type="button"

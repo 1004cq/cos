@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
 import { getCosConfig } from '@/lib/settings';
 import { mapWithConcurrency } from '@/lib/utils';
+import { recordVisit } from '@/lib/visit';
 
 /** 列表缩略/封面签名稍长，减少 20 人同时反复打 gallery */
 const LIST_SIGN_TTL = 3600;
@@ -161,6 +162,13 @@ export async function GET(req: NextRequest) {
     const valid = signed.filter(Boolean) as NonNullable<(typeof signed)[number]>[];
     const images = valid.filter((x) => x.kind === 'image');
     const videos = valid.filter((x) => x.kind === 'video');
+
+    // 主站打开图库记访客（失败不影响主流程；60s 同 IP 去重；不记签名接口）
+    void recordVisit({
+      req,
+      path: '/',
+      kind: 'page',
+    });
 
     return NextResponse.json(
       {

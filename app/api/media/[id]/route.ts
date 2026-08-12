@@ -35,8 +35,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
 /**
  * 更新媒体
- * Body: { albumId?: string | null, title?: string | null }
- * title 传 null 或空字符串可清空标题
+ * Body: { albumId?, title?, posterKey?, takenAt? }
+ * title / takenAt 传 null 或空字符串可清空
  */
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
@@ -51,6 +51,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       albumId?: string | null;
       title?: string | null;
       posterKey?: string | null;
+      takenAt?: Date | null;
     } = {};
 
     if ('albumId' in body) {
@@ -85,6 +86,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         data.posterKey = body.posterKey;
       } else {
         return NextResponse.json({ error: 'posterKey 无效' }, { status: 400 });
+      }
+    }
+
+    if ('takenAt' in body) {
+      if (body.takenAt === null || body.takenAt === '') {
+        data.takenAt = null;
+      } else if (typeof body.takenAt === 'string' || typeof body.takenAt === 'number') {
+        const d = new Date(body.takenAt);
+        if (Number.isNaN(d.getTime())) {
+          return NextResponse.json({ error: 'takenAt 日期无效' }, { status: 400 });
+        }
+        data.takenAt = d;
+      } else {
+        return NextResponse.json({ error: 'takenAt 必须是 ISO 字符串或 null' }, { status: 400 });
       }
     }
 

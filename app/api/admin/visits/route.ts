@@ -11,6 +11,7 @@ import { prisma } from '@/lib/prisma';
  *   pageSize
  *   ip     可选筛选
  *   path   可选筛选（contains）
+ *   kind   可选：page | share | api
  */
 export async function GET(req: NextRequest) {
   try {
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '50', 10)));
     const ipFilter = searchParams.get('ip')?.trim();
     const pathFilter = searchParams.get('path')?.trim();
+    const kindFilter = searchParams.get('kind')?.trim();
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -32,11 +34,15 @@ export async function GET(req: NextRequest) {
       createdAt: { gte: Date };
       ip?: string;
       path?: { contains: string; mode: 'insensitive' };
+      kind?: string;
     } = {
       createdAt: { gte: since },
     };
     if (ipFilter) where.ip = ipFilter;
     if (pathFilter) where.path = { contains: pathFilter, mode: 'insensitive' };
+    if (kindFilter === 'page' || kindFilter === 'share' || kindFilter === 'api') {
+      where.kind = kindFilter;
+    }
 
     const [total, recent, byIpRaw, byPathRaw, todayCount] = await Promise.all([
       prisma.visit.count({ where }),
