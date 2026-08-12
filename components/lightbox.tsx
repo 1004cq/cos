@@ -214,7 +214,7 @@ export function Lightbox({
 
   if (!isIos) {
     return (
-      <div className="photos-viewer-fs fixed inset-0 z-50 flex bg-black/45 backdrop-blur-md">
+      <div className="photos-viewer-fs fixed inset-0 z-50 flex bg-white/90 backdrop-blur-md">
         <PhotoViewerCarousel
           items={items}
           index={index}
@@ -236,7 +236,7 @@ export function Lightbox({
   return (
     <div
       className={cn(
-        'photos-viewer-fs photos-viewer-ios fixed inset-0 z-50 bg-black',
+        'photos-viewer-fs photos-viewer-ios fixed inset-0 z-50 bg-white',
         entered ? 'photos-viewer-enter' : 'opacity-0'
       )}
       role="dialog"

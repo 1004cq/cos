@@ -221,7 +221,7 @@ function ViewerSlide({
 
   if (isVideo) {
     return (
-      <div className="photos-viewer-slide relative w-full h-full bg-black">
+      <div className="photos-viewer-slide relative w-full h-full bg-white">
         {active ? (
           <>
             <video
@@ -239,7 +239,7 @@ function ViewerSlide({
             {needBigPlay && (
               <button
                 type="button"
-                className="absolute inset-0 z-[2] flex items-center justify-center bg-black/25"
+                className="absolute inset-0 z-[2] flex items-center justify-center bg-black/10"
                 aria-label="播放"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -254,7 +254,7 @@ function ViewerSlide({
                   );
                 }}
               >
-                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-black shadow-lg border border-black/10">
                   <svg viewBox="0 0 24 24" className="ml-1 h-8 w-8 fill-current" aria-hidden>
                     <path d="M8 5v14l11-7z" />
                   </svg>
@@ -267,12 +267,12 @@ function ViewerSlide({
           <img
             src={thumbUrl}
             alt=""
-            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain bg-black"
+            className="photos-viewer-media-el absolute inset-0 w-full h-full object-contain bg-white"
             draggable={false}
             onError={() => setPosterFailed(true)}
           />
         ) : (
-          <div className="absolute inset-0 bg-[#1C1C1E]" />
+          <div className="absolute inset-0 bg-[#F2F2F7]" />
         )}
       </div>
     );
@@ -283,7 +283,7 @@ function ViewerSlide({
   return (
     <div
       {...(active ? bindPinch() : {})}
-      className="photos-viewer-slide relative w-full h-full bg-black touch-none select-none"
+      className="photos-viewer-slide relative w-full h-full bg-white touch-none select-none"
       onDoubleClick={onDoubleClick}
       onTouchEnd={onTouchEndZoom}
       onContextMenu={blockSave}
@@ -294,9 +294,9 @@ function ViewerSlide({
         </div>
       )}
       {status === 'error' && active && !displayUrl && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#1C1C1E]">
-          <div className="w-24 h-24 rounded-2xl bg-[#2C2C2E]" />
-          <p className="text-sm text-red-400 pointer-events-none">加载失败</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#F2F2F7]">
+          <div className="w-24 h-24 rounded-2xl bg-[#E5E5EA]" />
+          <p className="text-sm text-red-500 pointer-events-none">加载失败</p>
         </div>
       )}
       {status === 'error' && active && displayUrl && (
@@ -562,7 +562,7 @@ export function PhotoViewerCarousel({
   return (
     <div
       ref={viewportRef}
-      className="photos-viewer-carousel absolute inset-0 w-full h-full overflow-hidden bg-black touch-pan-y"
+      className="photos-viewer-carousel absolute inset-0 w-full h-full overflow-hidden bg-white touch-pan-y"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}

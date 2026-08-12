@@ -355,8 +355,8 @@ body::before {
 .photos-viewer-chrome-top {
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.45) 0%,
-    rgba(0, 0, 0, 0.18) 55%,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(255, 255, 255, 0.72) 55%,
     transparent 100%
   );
   pointer-events: none;
@@ -368,8 +368,8 @@ body::before {
 .photos-viewer-chrome-bottom {
   background: linear-gradient(
     to top,
-    rgba(0, 0, 0, 0.5) 0%,
-    rgba(0, 0, 0, 0.2) 55%,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(255, 255, 255, 0.72) 55%,
     transparent 100%
   );
   pointer-events: none;
