@@ -392,7 +392,7 @@ export function Lightbox({
                   className={cn(
                     'photos-filmstrip-thumb shrink-0 w-11 h-11 rounded-[6px] overflow-hidden border-2 transition-all duration-200 bg-[#E5E5EA]',
                     active
-                      ? 'border-white opacity-100 scale-105'
+                      ? 'border-[#007AFF] opacity-100 scale-105'
                       : 'border-transparent opacity-55'
                   )}
                 >
