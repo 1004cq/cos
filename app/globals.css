@@ -282,6 +282,22 @@ body::before {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
+/** 详情灯箱深色底上的圆形返回/更多（白底黑箭头，对齐 iOS 照片） */
+.photos-icon-btn-viewer {
+  @apply inline-flex items-center justify-center rounded-full transition active:scale-95;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.photos-icon-btn-viewer:active {
+  background: #f2f2f7;
+}
+
 .photos-date-capsule {
   background: rgba(255, 255, 255, 0.92);
   border-radius: 999px;

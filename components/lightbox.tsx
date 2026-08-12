@@ -257,10 +257,26 @@ export function Lightbox({
         />
       </div>
 
-      {/* 顶栏浮层 */}
+      {/* 返回键：始终可见（白底圆形左箭头），不随 chrome 隐藏 */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="photos-icon-btn-viewer absolute z-[35]"
+        style={{
+          top: 'max(12px, calc(env(safe-area-inset-top) + 8px))',
+          left: '12px',
+        }}
+        aria-label="返回"
+        onTouchStart={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <ChevronLeft className="w-5 h-5" strokeWidth={2.75} />
+      </button>
+
+      {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏） */}
       <header
         className={cn(
-          'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 px-2 py-1.5 min-h-[48px] transition-opacity duration-250',
+          'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-end gap-2 px-2 py-1.5 min-h-[48px] transition-opacity duration-250',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
         style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}
@@ -268,13 +284,13 @@ export function Lightbox({
         onTouchMove={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <button type="button" onClick={onClose} className="photos-icon-btn" aria-label="返回">
-          <ChevronLeft className="w-6 h-6" strokeWidth={2.25} />
-        </button>
+        {/* 占位：与左侧固定返回键对齐，让日期居中 */}
+        <span className="w-9 h-9 shrink-0 opacity-0 pointer-events-none" aria-hidden />
 
         <button
           type="button"
-          className="photos-date-capsule flex flex-col items-center px-4 py-1.5 min-w-[128px] transition-opacity duration-200"
+          className="photos-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[128px] transition-opacity duration-200"
+          style={{ top: 'max(10px, calc(env(safe-area-inset-top) + 6px))' }}
           onClick={() => setInfoOpen((v) => !v)}
         >
           <span className="text-[13px] font-semibold leading-tight text-black">{weekday}</span>
@@ -285,11 +301,11 @@ export function Lightbox({
 
         <button
           type="button"
-          className="photos-icon-btn"
+          className="photos-icon-btn-viewer"
           aria-label="更多"
           onClick={() => setMenuOpen((v) => !v)}
         >
-          <MoreHorizontal className="w-5 h-5" />
+          <MoreHorizontal className="w-5 h-5" strokeWidth={2.25} />
         </button>
       </header>
 
