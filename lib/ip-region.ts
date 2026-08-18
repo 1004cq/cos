@@ -1,15 +1,25 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import * as Searcher from 'ip2region-ts';
+import {
+  IPv4,
+  loadContentFromFile,
+  loadHeaderFromFile,
+  newWithBuffer,
+  type Searcher,
+} from 'ip2region.js';
+import { isIpv4, isIpv6, isNonPublicOrInvalidIp, normalizeIp } from '@/lib/client-ip';
 
 /**
- * 离线 IP 归属地（ip2region xdb）。
+ * 离线 IPv4 归属地（ip2region xdb v3 / ip2region_v4.xdb）。
  *
- * 安装：`npm i ip2region-ts`（包内自带 data/ip2region.xdb）
- * 更新：`npm update ip2region-ts`
- * 或下载官方库覆盖本地文件：
- *   https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region.xdb
- *   放到 `data/ip2region.xdb`，或设置环境变量 IP2REGION_DB=/path/to/ip2region.xdb
+ * 仅省市级、约值，不到县。IPv6 / 内网 / 解析失败 → 「—」。
+ *
+ * 数据文件优先级：
+ * 1. 环境变量 IP2REGION_DB
+ * 2. data/ip2region_v4.xdb（仓库内随镜像打包）
+ * 3. data/ip2region.xdb（兼容旧文件名）
+ *
+ * 更新：见 data/README.md，或 `npm run ip2region:update` 后重新构建镜像。
  */
 
 export type IpRegion = {
@@ -20,20 +30,19 @@ export type IpRegion = {
 };
 
 const UNKNOWN: IpRegion = { country: '', province: '', city: '', text: '—' };
-const LOCAL: IpRegion = { country: '', province: '', city: '', text: '本地' };
 
 const cache = new Map<string, IpRegion>();
 const CACHE_MAX = 4_000;
 
-let searcher: ReturnType<typeof Searcher.newWithBuffer> | null | undefined;
+let searcher: Searcher | null | undefined;
 
 function resolveDbPath(): string | null {
   const fromEnv = process.env.IP2REGION_DB?.trim();
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
-  const local = path.join(process.cwd(), 'data', 'ip2region.xdb');
-  if (existsSync(local)) return local;
-  const bundled = Searcher.defaultDbFile;
-  if (bundled && existsSync(bundled)) return bundled;
+  const v4 = path.join(process.cwd(), 'data', 'ip2region_v4.xdb');
+  if (existsSync(v4)) return v4;
+  const legacy = path.join(process.cwd(), 'data', 'ip2region.xdb');
+  if (existsSync(legacy)) return legacy;
   return null;
 }
 
@@ -42,12 +51,17 @@ function getSearcher() {
   try {
     const dbPath = resolveDbPath();
     if (!dbPath) {
-      console.warn('ip-region: xdb not found');
+      console.warn('ip-region: xdb not found (expected data/ip2region_v4.xdb)');
       searcher = null;
       return null;
     }
-    const buffer = Searcher.loadContentFromFile(dbPath);
-    searcher = Searcher.newWithBuffer(buffer);
+    const header = loadHeaderFromFile(dbPath);
+    const created = header?.createdAt
+      ? new Date(header.createdAt * 1000).toISOString().slice(0, 10)
+      : 'unknown';
+    const buffer = loadContentFromFile(dbPath);
+    searcher = newWithBuffer(IPv4, buffer);
+    console.info(`ip-region: loaded ${dbPath} (xdb v${header?.version ?? '?'}, ${created})`);
     return searcher;
   } catch (err) {
     console.warn('ip-region: failed to load xdb', err);
@@ -56,25 +70,9 @@ function getSearcher() {
   }
 }
 
-function isPrivateOrInvalid(ip: string): boolean {
-  const raw = (ip || '').trim().toLowerCase();
-  if (!raw || raw === 'unknown' || raw === '::1' || raw === 'localhost') return true;
-  if (raw.startsWith('127.') || raw.startsWith('0.')) return true;
-  if (raw.startsWith('10.')) return true;
-  if (raw.startsWith('192.168.')) return true;
-  if (raw.startsWith('169.254.')) return true;
-  if (raw.startsWith('fc') || raw.startsWith('fd') || raw.startsWith('fe80')) return true;
-  const m = raw.match(/^172\.(\d+)\./);
-  if (m) {
-    const n = Number(m[1]);
-    if (n >= 16 && n <= 31) return true;
-  }
-  return false;
-}
-
 function cleanPart(value: string | undefined): string {
   const t = (value || '').trim();
-  if (!t || t === '0' || t === '内网IP') return '';
+  if (!t || t === '0' || t === '内网IP' || t === '本机地址' || t === '-') return '';
   return t;
 }
 
@@ -89,40 +87,57 @@ function stripAdminSuffix(name: string): string {
     .replace(/市$/u, '');
 }
 
-function formatText(country: string, province: string, city: string): string {
-  const cn = country === '中国' || country === '中国内地';
-  if (cn) {
-    const p = stripAdminSuffix(province);
-    const c = stripAdminSuffix(city);
-    if (p && c) {
-      if (p === c || c.startsWith(p)) return c;
-      if (p.startsWith(c)) return p;
-      return `${p}${c}`;
-    }
-    return p || c || country || '—';
-  }
-  const parts = [country, city || province].filter(Boolean);
-  const uniq: string[] = [];
-  for (const part of parts) {
-    if (!uniq.includes(part)) uniq.push(part);
-  }
-  return uniq.join(' ') || '—';
-}
-
-function parseRegionString(region: string | null | undefined): IpRegion {
+/**
+ * 兼容两种 xdb 字段：
+ * - 旧：Country|Area|Province|City|ISP
+ * - 新 v3：Country|Province|City|ISP|ISO
+ */
+export function parseRegionString(region: string | null | undefined): IpRegion {
   if (!region) return UNKNOWN;
-  const [countryRaw, , provinceRaw, cityRaw] = region.split('|');
-  const country = cleanPart(countryRaw);
-  const province = cleanPart(provinceRaw);
-  const city = cleanPart(cityRaw);
+  if (region.includes('内网IP')) return UNKNOWN;
+  const parts = region.split('|').map((p) => p.trim());
+  let country = '';
+  let province = '';
+  let city = '';
+
+  if (parts.length >= 5 && (parts[1] === '0' || parts[1] === '' || parts[1] === '内网IP')) {
+    country = cleanPart(parts[0]);
+    province = cleanPart(parts[2]);
+    city = cleanPart(parts[3]);
+  } else {
+    country = cleanPart(parts[0]);
+    province = cleanPart(parts[1]);
+    city = cleanPart(parts[2]);
+  }
+
   if (!country && !province && !city) return UNKNOWN;
-  if (region.includes('内网IP')) return LOCAL;
   return {
     country,
     province,
     city,
-    text: formatText(country, province, city),
+    text: formatApproxText(country, province, city),
   };
+}
+
+/** 约 广东 深圳 — 不暗示精确到区县 */
+export function formatApproxText(country: string, province: string, city: string): string {
+  const cn = country === '中国' || country === '中国内地' || country === 'China';
+  if (cn) {
+    const p = stripAdminSuffix(province);
+    const c = stripAdminSuffix(city);
+    if (p && c && p !== c && !c.startsWith(p) && !p.startsWith(c)) {
+      return `约 ${p} ${c}`;
+    }
+    const one = p || c;
+    return one ? `约 ${one}` : '约 中国';
+  }
+
+  const uniq: string[] = [];
+  for (const part of [country, province, city].map(stripAdminSuffix)) {
+    if (part && !uniq.includes(part)) uniq.push(part);
+  }
+  if (uniq.length === 0) return '—';
+  return `约 ${uniq.slice(0, 2).join(' ')}`;
 }
 
 function remember(ip: string, value: IpRegion): IpRegion {
@@ -135,19 +150,20 @@ function remember(ip: string, value: IpRegion): IpRegion {
 }
 
 export async function lookupIpRegion(ip: string): Promise<IpRegion> {
-  const raw = (ip || '').trim();
+  const raw = normalizeIp(ip) || (ip || '').trim();
   if (!raw) return UNKNOWN;
   const cached = cache.get(raw);
   if (cached) return cached;
-  if (isPrivateOrInvalid(raw)) return remember(raw, LOCAL);
-  if (!Searcher.isValidIp(raw)) return remember(raw, UNKNOWN);
+
+  if (isNonPublicOrInvalidIp(raw)) return remember(raw, UNKNOWN);
+  if (isIpv6(raw) && !isIpv4(raw)) return remember(raw, UNKNOWN);
+  if (!isIpv4(raw)) return remember(raw, UNKNOWN);
 
   try {
     const s = getSearcher();
     if (!s) return remember(raw, UNKNOWN);
-    const data = await s.search(raw);
-    const parsed = parseRegionString(data?.region);
-    return remember(raw, parsed);
+    const region = await s.search(raw);
+    return remember(raw, parseRegionString(region));
   } catch (err) {
     console.warn('ip-region lookup failed:', raw, err);
     return remember(raw, UNKNOWN);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getObjectBytes } from '@/lib/cos';
+import { getClientIp } from '@/lib/client-ip';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,11 +23,7 @@ function allowIp(ip: string): boolean {
 }
 
 function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
+  return getClientIp(req);
 }
 
 /**
