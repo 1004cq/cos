@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { regionTextAsync } from '@/lib/ip-region';
 
 /**
  * 访客统计
@@ -81,6 +82,30 @@ export async function GET(req: NextRequest) {
       select: { ip: true },
     });
 
+    const regionOf = async (ip: string) => {
+      try {
+        return await regionTextAsync(ip);
+      } catch {
+        return '—';
+      }
+    };
+
+    const [topIps, items] = await Promise.all([
+      Promise.all(
+        byIpRaw.map(async (r) => ({
+          ip: r.ip,
+          count: r._count.id,
+          region: await regionOf(r.ip),
+        }))
+      ),
+      Promise.all(
+        recent.map(async (item) => ({
+          ...item,
+          region: await regionOf(item.ip),
+        }))
+      ),
+    ]);
+
     return NextResponse.json({
       summary: {
         days,
@@ -88,9 +113,9 @@ export async function GET(req: NextRequest) {
         uniqueIps: uniqueIps.length,
         todayVisits: todayCount,
       },
-      topIps: byIpRaw.map((r) => ({ ip: r.ip, count: r._count.id })),
+      topIps,
       topPaths: byPathRaw.map((r) => ({ path: r.path, count: r._count.id })),
-      items: recent,
+      items,
       page,
       pageSize,
       totalPages: Math.ceil(total / pageSize),

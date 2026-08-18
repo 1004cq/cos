@@ -21,11 +21,12 @@ type VisitItem = {
   shareToken?: string | null;
   kind: string;
   createdAt: string;
+  region?: string;
 };
 
 type VisitsResponse = {
   summary: Summary;
-  topIps: { ip: string; count: number }[];
+  topIps: { ip: string; count: number; region?: string }[];
   topPaths: { path: string; count: number }[];
   items: VisitItem[];
   page: number;
@@ -39,6 +40,12 @@ function truncate(text: string | null | undefined, max: number): string {
   if (!text) return '—';
   if (text.length <= max) return text;
   return `${text.slice(0, max)}…`;
+}
+
+function formatIpWithRegion(ip: string, region?: string): string {
+  const loc = (region || '').trim();
+  if (!loc) return ip;
+  return `${ip}\u3000${loc}`;
 }
 
 export default function AdminVisitsPage() {
@@ -257,32 +264,34 @@ export default function AdminVisitsPage() {
               暂无数据
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-px">
+              <table className="w-full text-sm min-w-[320px]">
                 <thead>
                   <tr className="text-left" style={{ color: 'var(--text-muted)' }}>
-                    <th className="px-4 py-2 font-medium">IP</th>
-                    <th className="px-4 py-2 font-medium text-right">次数</th>
+                    <th className="px-4 py-2 font-medium whitespace-nowrap">IP</th>
+                    <th className="px-4 py-2 font-medium text-right whitespace-nowrap">次数</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/40">
                   {data.topIps.map((row) => (
                     <tr key={row.ip}>
-                      <td className="px-4 py-2 font-mono text-xs">
+                      <td className="px-4 py-2 font-mono text-xs whitespace-nowrap">
                         <button
                           type="button"
-                          className="hover:underline text-left"
+                          className="hover:underline text-left whitespace-nowrap"
                           onClick={() => {
                             setIpInput(row.ip);
                             setIpFilter(row.ip);
                             setPage(1);
                           }}
-                          title="按此 IP 筛选"
+                          title="按此 IP 筛选明细"
                         >
-                          {row.ip}
+                          {formatIpWithRegion(row.ip, row.region)}
                         </button>
                       </td>
-                      <td className="px-4 py-2 text-right font-medium">{row.count}</td>
+                      <td className="px-4 py-2 text-right font-medium whitespace-nowrap">
+                        {row.count}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -361,19 +370,19 @@ export default function AdminVisitsPage() {
             暂无访问记录。打开主站图库或分享链接后会出现在这里。
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-px">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr
                   className="text-left border-b border-white/40"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <th className="px-4 py-2.5 font-medium whitespace-nowrap">时间</th>
-                  <th className="px-4 py-2.5 font-medium">类型</th>
-                  <th className="px-4 py-2.5 font-medium">IP</th>
-                  <th className="px-4 py-2.5 font-medium">路径</th>
-                  <th className="px-4 py-2.5 font-medium">分享 Token</th>
-                  <th className="px-4 py-2.5 font-medium">UA</th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap">类型</th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap">IP</th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap">路径</th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap">分享 Token</th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap">UA</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/40">
@@ -394,8 +403,24 @@ export default function AdminVisitsPage() {
                         {kindLabel(item.kind)}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-xs">{item.ip}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs max-w-[200px] truncate" title={item.path}>
+                    <td className="px-4 py-2.5 font-mono text-xs whitespace-nowrap">
+                      <button
+                        type="button"
+                        className="hover:underline text-left whitespace-nowrap"
+                        onClick={() => {
+                          setIpInput(item.ip);
+                          setIpFilter(item.ip);
+                          setPage(1);
+                        }}
+                        title="按此 IP 筛选明细"
+                      >
+                        {formatIpWithRegion(item.ip, item.region)}
+                      </button>
+                    </td>
+                    <td
+                      className="px-4 py-2.5 font-mono text-xs max-w-[200px] truncate"
+                      title={item.path}
+                    >
                       {item.path}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs" title={item.shareToken || undefined}>
