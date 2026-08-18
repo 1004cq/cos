@@ -7,6 +7,8 @@
  * 单机 Docker / 长驻 Node 进程下生效可靠。若以后有 Redis，可换为共享存储。
  */
 
+import { extractClientIp } from '@/lib/client-ip';
+
 const WINDOW_MS = 15 * 60 * 1000;
 const FAIL_LIMIT = 5;
 
@@ -22,22 +24,7 @@ function prune(now: number, entry: Entry): void {
 }
 
 export function getClientIp(headers?: Headers | Record<string, string | string[] | undefined>): string {
-  if (!headers) return 'unknown';
-
-  const get = (key: string): string | undefined => {
-    if (typeof (headers as Headers).get === 'function') {
-      return (headers as Headers).get(key) || undefined;
-    }
-    const v = (headers as Record<string, string | string[] | undefined>)[key];
-    if (Array.isArray(v)) return v[0];
-    return v;
-  };
-
-  const forwarded = get('x-forwarded-for') || get('x-real-ip') || get('cf-connecting-ip');
-  if (forwarded) {
-    return forwarded.split(',')[0]!.trim() || 'unknown';
-  }
-  return 'unknown';
+  return extractClientIp(headers);
 }
 
 export function isLoginBlocked(ip: string): { blocked: boolean; retryAfterSec?: number } {

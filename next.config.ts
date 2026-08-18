@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['ip2region-ts'],
+  serverExternalPackages: ['ip2region.js'],
   images: {
     remotePatterns: [
       {

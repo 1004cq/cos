@@ -43,8 +43,7 @@ function truncate(text: string | null | undefined, max: number): string {
 }
 
 function formatIpWithRegion(ip: string, region?: string): string {
-  const loc = (region || '').trim();
-  if (!loc) return ip;
+  const loc = (region || '').trim() || '—';
   return `${ip}\u3000${loc}`;
 }
 
@@ -122,6 +121,9 @@ export default function AdminVisitsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">访客</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             主站图库与分享访问 · 含时间 / IP / 类型（不记录密码与 COS 签名）
+          </p>
+          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+            IP 归属来自公开库（ip2region），仅到省市约值，与真实位置可能不符
           </p>
         </div>
         <div className="flex gap-1 rounded-xl glass p-1">

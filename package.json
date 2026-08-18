@@ -10,7 +10,9 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "ip2region:update": "curl -fsSL -o data/ip2region_v4.xdb https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region_v4.xdb",
+    "check:ip-region": "tsx scripts/check-ip-region.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
@@ -18,7 +20,7 @@
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "cos-nodejs-sdk-v5": "^2.14.6",
-    "ip2region-ts": "^2.0.1",
+    "ip2region.js": "^3.1.8",
     "lucide-react": "^0.475.0",
     "next": "15.2.4",
     "next-auth": "^4.24.11",

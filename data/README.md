@@ -1,11 +1,34 @@
-# 可选：自定义 ip2region 离线库
+# ip2region 离线库（IPv4）
 
-默认使用 npm 包 `ip2region-ts` 自带的 `ip2region.xdb`。
+访客页 IP 归属使用官方 [ip2region](https://github.com/lionsoul2014/ip2region) 的 **IPv4 xdb**（省市级、约值，不到县）。
 
-更新方式（任选其一）：
+当前仓库文件：`data/ip2region_v4.xdb`  
+（本份来自官方 master，xdb 头 `createdAt` 约 2026-08-14。）
 
-1. `npm update ip2region-ts`
-2. 下载官方文件覆盖本目录：
-   https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region.xdb
-   保存为 `data/ip2region.xdb`
-3. 或设置环境变量 `IP2REGION_DB=/绝对路径/ip2region.xdb`
+Docker 构建会把整个 `data/` 打进镜像（见 `Dockerfile` 的 `COPY --from=builder /app/data ./data`）。  
+也可只挂载数据文件，无需改代码：
+
+```yaml
+# docker-compose.yml 的 app 服务
+volumes:
+  - ./data/ip2region_v4.xdb:/app/data/ip2region_v4.xdb:ro
+```
+
+或设置环境变量 `IP2REGION_DB=/绝对路径/ip2region_v4.xdb`。
+
+## 如何更新
+
+在项目根目录：
+
+```bash
+npm run ip2region:update
+```
+
+等价于：
+
+```bash
+curl -fsSL -o data/ip2region_v4.xdb \
+  https://github.com/lionsoul2014/ip2region/raw/master/data/ip2region_v4.xdb
+```
+
+然后重新构建并部署镜像。不需要 IPv6 xdb：无 IPv6 数据时页面显示「—」。

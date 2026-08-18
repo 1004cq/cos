@@ -1,20 +1,8 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getClientIp } from '@/lib/client-ip';
 
-/** 从请求头解析真实 IP（兼容反代 / CDN） */
-export function getClientIp(req: NextRequest): string {
-  const xf = req.headers.get('x-forwarded-for');
-  if (xf) {
-    const first = xf.split(',')[0]?.trim();
-    if (first) return first.slice(0, 64);
-  }
-  const real = req.headers.get('x-real-ip')?.trim();
-  if (real) return real.slice(0, 64);
-  // NextRequest 在部分运行时可能没有 ip 字段
-  const anyReq = req as unknown as { ip?: string };
-  if (anyReq.ip) return String(anyReq.ip).slice(0, 64);
-  return 'unknown';
-}
+export { getClientIp } from '@/lib/client-ip';
 
 export type RecordVisitInput = {
   req: NextRequest;
