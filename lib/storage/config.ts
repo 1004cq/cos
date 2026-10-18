@@ -244,7 +244,6 @@ export type StorageConfigSaveInput = {
 export async function saveStorageConfig(input: StorageConfigSaveInput): Promise<void> {
   if (input.provider) {
     await saveStorageProviderId(parseProviderId(input.provider));
-    resetProviderHint();
   }
 
   if (input.cos) {
@@ -253,6 +252,9 @@ export async function saveStorageConfig(input: StorageConfigSaveInput): Promise<
   if (input.s3) {
     await saveS3Config(input.s3);
   }
+
+  // 任意配置写入后立即清 Provider 缓存（含仅改密钥 / 桶等）
+  resetProviderHint();
 }
 
 /** 避免循环依赖：由 index 注入 */

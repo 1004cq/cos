@@ -41,8 +41,10 @@ export type StoragePublicConfig = CosPublicConfig & {
 export type TestResult = {
   ok: boolean;
   error?: string;
+  detail?: string;
   bucket?: string;
   region?: string;
+  endpoint?: string;
   provider?: StorageProviderId;
 };
 
@@ -61,7 +63,7 @@ export const PROVIDER_OPTIONS: {
   {
     id: 's3',
     label: 'S3 兼容',
-    hint: 'AWS S3 / Cloudflare R2 / MinIO 等',
+    hint: '无服务端缩略：列表用封面海报或占位',
     enabled: true,
   },
   {

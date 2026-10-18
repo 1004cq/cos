@@ -11,6 +11,7 @@ import {
   saveStorageConfig,
   getStorageProvider,
 } from '@/lib/storage';
+import { formatS3Error } from '@/lib/storage/s3-provider';
 import COS from 'cos-nodejs-sdk-v5';
 
 /** 读取当前存储配置（密钥脱敏；含 provider） */
@@ -157,25 +158,45 @@ async function testStorageConnection(
             : base.forcePathStyle,
       };
       const p = new S3StorageProvider(cfg);
-      const r = await p.testConnection!();
+      try {
+        const r = await p.testConnection!();
+        return {
+          ok: r.ok,
+          error: r.error,
+          detail: r.detail,
+          bucket: cfg.bucket,
+          region: cfg.region,
+          endpoint: cfg.endpoint,
+          provider: 's3' as const,
+        };
+      } finally {
+        p.dispose();
+      }
+    }
+    const p = await getStorageProvider();
+    try {
+      const r = await p.testConnection?.();
+      const s3 = await getS3Config();
       return {
-        ok: r.ok,
-        error: r.error,
-        bucket: cfg.bucket,
-        region: cfg.region,
+        ok: Boolean(r?.ok),
+        error: r?.ok === false ? r.error || formatS3Error(new Error(r.error || 'S3 连通失败')) : r?.error,
+        detail: r?.detail,
+        bucket: s3.bucket,
+        region: s3.region,
+        endpoint: s3.endpoint,
+        provider: 's3' as const,
+      };
+    } catch (err) {
+      const s3 = await getS3Config();
+      return {
+        ok: false,
+        error: formatS3Error(err),
+        bucket: s3.bucket,
+        region: s3.region,
+        endpoint: s3.endpoint,
         provider: 's3' as const,
       };
     }
-    const p = await getStorageProvider();
-    const r = await p.testConnection?.();
-    const s3 = await getS3Config();
-    return {
-      ok: Boolean(r?.ok),
-      error: r?.error,
-      bucket: s3.bucket,
-      region: s3.region,
-      provider: 's3' as const,
-    };
   }
 
   if (hint === 'oss') {

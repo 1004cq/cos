@@ -16,8 +16,8 @@ type Props = {
 };
 
 /**
- * 封面：posterUrl → thumbUrl（图片） → 深灰+▶（视频无海报）
- * 网格不再挂视频元素拉流；海报由上传时截帧或服务端 CI 截帧持久化。
+ * 封面：posterUrl → thumbUrl（图片） → 深灰 + 图标占位
+ * 无缩略时禁止用原图；S3 等无 imageProcess 时由列表返回 null。
  */
 export function MediaCover({
   id: _id,
@@ -85,17 +85,31 @@ export function MediaCover({
     <span
       ref={rootRef}
       className={cn(
-        'relative flex h-full w-full items-center justify-center bg-zinc-800 text-white/50',
+        'relative flex h-full w-full items-center justify-center bg-zinc-800 text-white/45',
         className
       )}
+      aria-hidden
     >
-      {isVideo && (
+      {isVideo ? (
         <svg
           viewBox="0 0 24 24"
           className={cn('fill-current opacity-80', compact ? 'h-5 w-5' : 'h-8 w-8')}
           aria-hidden
         >
           <path d="M8 5v14l11-7z" />
+        </svg>
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className={cn('opacity-80', compact ? 'h-5 w-5' : 'h-8 w-8')}
+          aria-hidden
+        >
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <circle cx="8.5" cy="10" r="1.5" fill="currentColor" stroke="none" />
+          <path d="M21 16l-5.5-5.5L9 17" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )}
       {playBadge}

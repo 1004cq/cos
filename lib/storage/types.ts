@@ -91,8 +91,11 @@ export interface StorageProvider {
 
   abortMultipartUpload?(key: string, uploadId: string): Promise<void>;
 
-  /** 连通性测试（head bucket） */
+  /** 连通性测试（head bucket / 探针对象） */
   testConnection?(): Promise<{ ok: boolean; error?: string; detail?: string }>;
+
+  /** 释放底层客户端（如 S3Client）；缓存切换时调用 */
+  dispose?(): void;
 }
 
 export type StorageRuntimeConfig = {

@@ -89,14 +89,19 @@ async function buildShareItems(mediaList: MediaRow[]) {
     }
 
     if (isImage) {
-      try {
-        thumbUrl = await getSignedUrl(
-          m.key,
-          900,
-          canThumb ? { thumb: true, watermark: wm } : undefined
-        );
-      } catch {
-        thumbUrl = null;
+      if (canThumb) {
+        try {
+          thumbUrl = await getSignedUrl(
+            m.key,
+            900,
+            { thumb: true, watermark: wm }
+          );
+        } catch {
+          thumbUrl = null;
+        }
+      } else {
+        // 无 imageProcess：仅用 poster，禁止原图铺网格
+        thumbUrl = posterUrl;
       }
     } else if (isVideo) {
       // 与 gallery 一致：无海报时不走 COS snapshot
