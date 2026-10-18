@@ -35,9 +35,60 @@ export type CosRuntimeConfig = {
   source: 'database' | 'env' | 'mixed';
 };
 
-function deriveKey(): Buffer {
-  const secret = process.env.NEXTAUTH_SECRET || process.env.SETTINGS_ENCRYPT_KEY || 'cos-dev-insecure-key';
+const DEV_FALLBACK_SECRET = 'cos-dev-insecure-key';
+let warnedDevFallback = false;
+
+function hashSecret(secret: string): Buffer {
   return createHash('sha256').update(secret).digest();
+}
+
+/**
+ * 加密密钥来源（优先独立 SETTINGS_ENCRYPT_KEY，兼容旧数据用的 NEXTAUTH_SECRET）：
+ * 1. SETTINGS_ENCRYPT_KEY（推荐生产单独配置）
+ * 2. NEXTAUTH_SECRET
+ * 3. 仅开发：硬编码弱密钥 + 警告
+ */
+function resolveEncryptSecrets(): string[] {
+  const dedicated = (process.env.SETTINGS_ENCRYPT_KEY || '').trim();
+  const nextAuth = (process.env.NEXTAUTH_SECRET || '').trim();
+  const secrets: string[] = [];
+  if (dedicated) secrets.push(dedicated);
+  if (nextAuth && nextAuth !== dedicated) secrets.push(nextAuth);
+  return secrets;
+}
+
+function primaryEncryptSecret(): string {
+  const secrets = resolveEncryptSecrets();
+  if (secrets.length > 0) return secrets[0]!;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '生产环境必须配置 SETTINGS_ENCRYPT_KEY 或 NEXTAUTH_SECRET，禁止使用弱加密密钥'
+    );
+  }
+
+  if (!warnedDevFallback) {
+    warnedDevFallback = true;
+    console.warn(
+      '[settings] 警告：未配置 SETTINGS_ENCRYPT_KEY / NEXTAUTH_SECRET，使用开发弱密钥。生产部署前务必配置。'
+    );
+  }
+  return DEV_FALLBACK_SECRET;
+}
+
+/** 生产启动检查：缺少加密密钥则拒绝启动 */
+export function assertSettingsEncryptConfigured(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  const secrets = resolveEncryptSecrets();
+  if (secrets.length === 0) {
+    throw new Error(
+      '生产环境缺少 SETTINGS_ENCRYPT_KEY 或 NEXTAUTH_SECRET：拒绝启动以避免弱密钥加密配置'
+    );
+  }
+}
+
+function deriveKey(secret = primaryEncryptSecret()): Buffer {
+  return hashSecret(secret);
 }
 
 /** 简单 AES-256-GCM 加密，格式 iv:tag:cipher 均为 base64 */
@@ -54,12 +105,34 @@ export function decryptSecret(payload: string): string {
   if (!ivB64 || !tagB64 || !dataB64) {
     return payload;
   }
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey(), Buffer.from(ivB64, 'base64'));
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(dataB64, 'base64')),
-    decipher.final(),
-  ]).toString('utf8');
+
+  // 兼容：优先 SETTINGS_ENCRYPT_KEY，失败再试 NEXTAUTH_SECRET / 开发弱密钥
+  const candidates = resolveEncryptSecrets();
+  if (candidates.length === 0 && process.env.NODE_ENV !== 'production') {
+    candidates.push(DEV_FALLBACK_SECRET);
+  }
+  if (candidates.length === 0) {
+    candidates.push(primaryEncryptSecret());
+  }
+
+  let lastErr: unknown;
+  for (const secret of candidates) {
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        deriveKey(secret),
+        Buffer.from(ivB64, 'base64')
+      );
+      decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(dataB64, 'base64')),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('解密配置密钥失败');
 }
 
 function maskSecret(value: string): string {

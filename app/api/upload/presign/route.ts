@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { publicApiError } from '@/lib/api-error';
 import { generateKey, getUploadPresignedUrl } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
+import { rememberUploadKey } from '@/lib/upload-key-cache';
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { url, viaSts } = await getUploadPresignedUrl(key, contentType, 600);
+    rememberUploadKey(key);
 
     return NextResponse.json({
       url,
@@ -51,8 +54,9 @@ export async function POST(req: NextRequest) {
       viaSts,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '生成预签名失败';
-    console.error('presign error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: publicApiError(error, '生成预签名失败', 'presign error') },
+      { status: 500 }
+    );
   }
 }

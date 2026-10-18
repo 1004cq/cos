@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { publicApiError } from '@/lib/api-error';
 import { prisma } from '@/lib/prisma';
+import {
+  consumeRateLimit,
+  galleryRateLimitKey,
+  GALLERY_RATE_LIMIT,
+  getClientIp,
+} from '@/lib/rate-limit';
 import {
   getImageProcessOptions,
   getSignedUrl,
@@ -18,6 +25,18 @@ const ORIGIN_SIGN_TTL = 1800;
  */
 export async function GET(req: NextRequest) {
   try {
+    const ip = getClientIp(req.headers);
+    const limited = consumeRateLimit(galleryRateLimitKey(ip), GALLERY_RATE_LIMIT);
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: '请求过于频繁，请稍后再试' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(limited.retryAfterSec) },
+        }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const pageSize = Math.min(
       100,
@@ -195,8 +214,9 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '加载失败';
-    console.error('gallery error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: publicApiError(error, '加载失败', 'gallery error') },
+      { status: 500 }
+    );
   }
 }
