@@ -34,6 +34,9 @@ type SlideProps = {
   pan: { x: number; y: number };
   onPanChange: (pan: { x: number; y: number }) => void;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
+  /** 图库点击带入的手势播放意图；为 true 时不再走延迟 tryPlay */
+  gesturePlayIntent?: boolean;
+  onPlayIntentConsumed?: () => void;
 };
 
 function ViewerSlide({
@@ -44,6 +47,8 @@ function ViewerSlide({
   pan,
   onPanChange,
   videoRef,
+  gesturePlayIntent = false,
+  onPlayIntentConsumed,
 }: SlideProps) {
   const isVideo = item.mimeType.startsWith('video/');
   const thumbUrl = item.posterUrl || item.thumbUrl || null;
@@ -57,6 +62,11 @@ function ViewerSlide({
   const [needBigPlay, setNeedBigPlay] = useState(false);
   const lastTapRef = useRef(0);
   const pinchStartScale = useRef(1);
+  /** 仅在挂载/切到该视频时读取，避免 intent 清除导致 effect 重跑 unload */
+  const gesturePlayIntentRef = useRef(gesturePlayIntent);
+  gesturePlayIntentRef.current = gesturePlayIntent;
+  const onPlayIntentConsumedRef = useRef(onPlayIntentConsumed);
+  onPlayIntentConsumedRef.current = onPlayIntentConsumed;
 
   useEffect(() => {
     if (!active || isVideo) return;
@@ -161,7 +171,7 @@ function ViewerSlide({
     lastTapRef.current = now;
   }
 
-  /** 进入/切到视频：默认有声尝试 play；策略拒绝则大播放钮，点击后再有声 play。不强制 muted=true */
+  /** 进入/切到视频：有手势意图时只同步 UI（play 已在点击栈内触发）；否则尝试 play，失败出大播放钮 */
   useEffect(() => {
     if (!isVideo || !active) {
       setNeedBigPlay(false);
@@ -179,40 +189,59 @@ function ViewerSlide({
     v.setAttribute('webkit-playsinline', '');
     v.removeAttribute('muted');
 
-    const onPlaying = () => {
-      if (!cancelled) setNeedBigPlay(false);
-    };
-
-    let onReady: (() => void) | null = null;
-
-    const tryPlay = async () => {
+    const markPlaying = () => {
       if (cancelled) return;
-      v.muted = false;
-      v.defaultMuted = false;
-      try {
-        await v.play();
-        if (cancelled) return;
-        setNeedBigPlay(false);
-      } catch {
-        if (cancelled) return;
-        setNeedBigPlay(true);
-      }
+      setNeedBigPlay(false);
+      onPlayIntentConsumedRef.current?.();
     };
 
-    if (v.readyState >= 2) {
-      void tryPlay();
-    } else {
-      onReady = () => {
-        if (onReady) v.removeEventListener('loadeddata', onReady);
-        void tryPlay();
-      };
-      v.addEventListener('loadeddata', onReady);
-    }
-
+    const onPlaying = () => markPlaying();
     v.addEventListener('playing', onPlaying);
+
+    const fromGesture = gesturePlayIntentRef.current;
+    let onReady: (() => void) | null = null;
+    let failTimer: number | null = null;
+
+    if (fromGesture) {
+      // 图库格子点击：play() 已在用户手势内调用，这里只跟进状态 / 降级大按钮
+      if (!v.paused && !v.ended) {
+        markPlaying();
+      } else {
+        failTimer = window.setTimeout(() => {
+          if (cancelled) return;
+          if (v.paused) setNeedBigPlay(true);
+        }, 800);
+      }
+    } else {
+      // 滑动切到视频：无用户手势，尽量 tryPlay；失败则 needBigPlay
+      const tryPlay = async () => {
+        if (cancelled) return;
+        v.muted = false;
+        v.defaultMuted = false;
+        try {
+          await v.play();
+          if (cancelled) return;
+          setNeedBigPlay(false);
+        } catch {
+          if (cancelled) return;
+          setNeedBigPlay(true);
+        }
+      };
+
+      if (v.readyState >= 2) {
+        void tryPlay();
+      } else {
+        onReady = () => {
+          if (onReady) v.removeEventListener('loadeddata', onReady);
+          void tryPlay();
+        };
+        v.addEventListener('loadeddata', onReady);
+      }
+    }
 
     return () => {
       cancelled = true;
+      if (failTimer != null) window.clearTimeout(failTimer);
       if (onReady) v.removeEventListener('loadeddata', onReady);
       v.removeEventListener('playing', onPlaying);
       unloadVideo(v);
@@ -354,6 +383,8 @@ type CarouselProps = {
   swipeEnabled: boolean;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   onMediaTap?: () => void;
+  initialPlayIntent?: boolean;
+  onPlayIntentConsumed?: () => void;
 };
 
 export function PhotoViewerCarousel({
@@ -365,6 +396,8 @@ export function PhotoViewerCarousel({
   swipeEnabled,
   videoRef: videoRefProp,
   onMediaTap,
+  initialPlayIntent = false,
+  onPlayIntentConsumed,
 }: CarouselProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const internalVideoRef = useRef<HTMLVideoElement>(null);
@@ -596,6 +629,8 @@ export function PhotoViewerCarousel({
                 pan={i === index ? pan : { x: 0, y: 0 }}
                 onPanChange={setPanBoth}
                 videoRef={i === index ? videoRef : undefined}
+                gesturePlayIntent={i === index ? initialPlayIntent : false}
+                onPlayIntentConsumed={onPlayIntentConsumed}
               />
             </div>
           ))}
