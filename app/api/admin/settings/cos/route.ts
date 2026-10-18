@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { formatCosError } from '@/lib/cos-errors';
 import {
   getCosConfig,
+  getOssConfig,
   getStorageConfigPublic,
   getS3Config,
   parseProviderId,
@@ -11,7 +12,7 @@ import {
   saveStorageConfig,
   getStorageProvider,
 } from '@/lib/storage';
-import { formatS3Error } from '@/lib/storage/s3-provider';
+import { formatOssError } from '@/lib/storage/oss-provider';
 import COS from 'cos-nodejs-sdk-v5';
 
 /** 读取当前存储配置（密钥脱敏；含 provider） */
@@ -30,7 +31,7 @@ export async function GET() {
   }
 }
 
-/** 保存存储配置（可含 provider + cos / s3） */
+/** 保存存储配置（可含 provider + cos / s3 / oss） */
 export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -45,7 +46,7 @@ export async function PUT(req: NextRequest) {
 
     const cos =
       body.cos ||
-      (provider === 'cos' || (!provider && body.bucket != null)
+      (provider === 'cos' || (!provider && body.bucket != null && !body.accessKeyId)
         ? {
             secretId: body.secretId,
             secretKey: body.secretKey,
@@ -88,7 +89,29 @@ export async function PUT(req: NextRequest) {
           }
         : undefined);
 
-    await saveStorageConfig({ provider, cos, s3 });
+    const oss =
+      body.oss ||
+      (provider === 'oss'
+        ? {
+            accessKeyId: body.accessKeyId ?? body.secretId,
+            accessKeySecret: body.accessKeySecret ?? body.secretKey,
+            bucket: body.bucket,
+            region: body.region,
+            endpoint: body.endpoint,
+            cname: body.cname === undefined ? undefined : Boolean(body.cname),
+            cdnDomain: body.cdnDomain,
+            publicBaseUrl: body.publicBaseUrl,
+            thumbWidth: body.thumbWidth != null ? Number(body.thumbWidth) : undefined,
+            watermarkEnabled:
+              body.watermarkEnabled === undefined
+                ? undefined
+                : Boolean(body.watermarkEnabled),
+            watermarkText:
+              body.watermarkText === undefined ? undefined : String(body.watermarkText),
+          }
+        : undefined);
+
+    await saveStorageConfig({ provider, cos, s3, oss });
     resetStorageProviderCache();
 
     const config = await getStorageConfigPublic();
@@ -133,9 +156,9 @@ async function testStorageConnection(
   override?: Record<string, unknown>
 ) {
   const hint = providerHint;
-  // 临时覆盖：COS headBucket 仍用专用逻辑；S3 用 Provider.testConnection
-  if (hint === 's3' || (!hint && (await getStorageProvider()).id === 's3')) {
-    // 若表单带了覆盖字段，先不写库，用临时 S3 provider
+  const currentId = hint || (await getStorageProvider()).id;
+
+  if (currentId === 's3') {
     if (override && (override.accessKeyId || override.endpoint || override.bucket)) {
       const { S3StorageProvider } = await import('@/lib/storage/s3-provider');
       const base = await getS3Config();
@@ -166,41 +189,99 @@ async function testStorageConnection(
           detail: r.detail,
           bucket: cfg.bucket,
           region: cfg.region,
-          endpoint: cfg.endpoint,
           provider: 's3' as const,
         };
       } finally {
-        p.dispose();
+        (p as { dispose?: () => void }).dispose?.();
       }
     }
-    const p = await getStorageProvider();
     try {
+      const p = await getStorageProvider();
       const r = await p.testConnection?.();
       const s3 = await getS3Config();
       return {
         ok: Boolean(r?.ok),
-        error: r?.ok === false ? r.error || formatS3Error(new Error(r.error || 'S3 连通失败')) : r?.error,
+        error: r?.error,
         detail: r?.detail,
         bucket: s3.bucket,
         region: s3.region,
-        endpoint: s3.endpoint,
         provider: 's3' as const,
       };
     } catch (err) {
       const s3 = await getS3Config();
       return {
         ok: false,
-        error: formatS3Error(err),
+        error: err instanceof Error ? err.message : String(err),
         bucket: s3.bucket,
         region: s3.region,
-        endpoint: s3.endpoint,
         provider: 's3' as const,
       };
     }
   }
 
-  if (hint === 'oss') {
-    return { ok: false, error: '阿里云 OSS 尚未实现', provider: 'oss' as const };
+  if (currentId === 'oss') {
+    if (
+      override &&
+      (override.accessKeyId || override.accessKeySecret || override.bucket || override.endpoint)
+    ) {
+      const { OssStorageProvider } = await import('@/lib/storage/oss-provider');
+      const base = await getOssConfig();
+      const cfg = {
+        ...base,
+        accessKeyId:
+          override.accessKeyId && !String(override.accessKeyId).includes('****')
+            ? String(override.accessKeyId).trim()
+            : base.accessKeyId,
+        accessKeySecret:
+          override.accessKeySecret && !String(override.accessKeySecret).includes('****')
+            ? String(override.accessKeySecret).trim()
+            : base.accessKeySecret,
+        bucket: String(override.bucket || base.bucket).trim(),
+        region: String(override.region || base.region).trim() || 'oss-cn-hangzhou',
+        endpoint: String(override.endpoint ?? base.endpoint).trim(),
+        cname:
+          override.cname !== undefined ? Boolean(override.cname) : base.cname,
+      };
+      const p = new OssStorageProvider(cfg);
+      try {
+        const r = await p.testConnection!();
+        return {
+          ok: r.ok,
+          error: r.error,
+          detail: r.detail,
+          bucket: cfg.bucket,
+          region: cfg.region,
+          endpoint: cfg.endpoint,
+          provider: 'oss' as const,
+        };
+      } finally {
+        p.dispose?.();
+      }
+    }
+    try {
+      const p = await getStorageProvider();
+      const r = await p.testConnection?.();
+      const oss = await getOssConfig();
+      return {
+        ok: Boolean(r?.ok),
+        error: r?.ok === false ? r.error || formatOssError(new Error('OSS 连通失败')) : r?.error,
+        detail: r?.detail,
+        bucket: oss.bucket,
+        region: oss.region,
+        endpoint: oss.endpoint,
+        provider: 'oss' as const,
+      };
+    } catch (err) {
+      const oss = await getOssConfig();
+      return {
+        ok: false,
+        error: formatOssError(err),
+        bucket: oss.bucket,
+        region: oss.region,
+        endpoint: oss.endpoint,
+        provider: 'oss' as const,
+      };
+    }
   }
 
   return testCosConnection(override);

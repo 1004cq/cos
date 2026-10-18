@@ -32,10 +32,28 @@ export type S3PublicConfig = {
   ready: boolean;
 };
 
+export type OssPublicConfig = {
+  accessKeyId: string;
+  accessKeyIdSet: boolean;
+  accessKeySecretSet: boolean;
+  bucket: string;
+  region: string;
+  endpoint: string;
+  cname: boolean;
+  cdnDomain: string;
+  publicBaseUrl: string;
+  thumbWidth: number;
+  watermarkEnabled: boolean;
+  watermarkText: string;
+  source: 'database' | 'env' | 'mixed';
+  ready: boolean;
+};
+
 export type StoragePublicConfig = CosPublicConfig & {
   provider: StorageProviderId;
   cos?: CosPublicConfig;
   s3?: S3PublicConfig;
+  oss?: OssPublicConfig;
 };
 
 export type TestResult = {
@@ -69,8 +87,8 @@ export const PROVIDER_OPTIONS: {
   {
     id: 'oss',
     label: '阿里云 OSS',
-    hint: '即将支持（扩展位）',
-    enabled: false,
+    hint: '图片处理缩略 / 分片上传',
+    enabled: true,
   },
 ];
 
@@ -93,6 +111,16 @@ export const S3_REGION_HINTS = [
   'ap-northeast-1',
   'ap-southeast-1',
   'eu-west-1',
+] as const;
+
+export const OSS_REGION_HINTS = [
+  'oss-cn-hangzhou',
+  'oss-cn-shanghai',
+  'oss-cn-beijing',
+  'oss-cn-shenzhen',
+  'oss-cn-hongkong',
+  'oss-ap-southeast-1',
+  'oss-us-west-1',
 ] as const;
 
 export const SOURCE_LABEL: Record<CosPublicConfig['source'], string> = {

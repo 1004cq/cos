@@ -94,7 +94,7 @@ export interface StorageProvider {
   /** 连通性测试（head bucket / 探针对象） */
   testConnection?(): Promise<{ ok: boolean; error?: string; detail?: string }>;
 
-  /** 释放底层客户端（如 S3Client）；缓存切换时调用 */
+  /** 释放底层客户端（如 S3Client / OSS）；缓存切换时调用 */
   dispose?(): void;
 }
 
