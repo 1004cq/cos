@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { publicApiError } from '@/lib/api-error';
 import { getUploadStsCredential, isStsEnabled } from '@/lib/sts';
 
 /**
@@ -28,9 +29,13 @@ export async function POST() {
       ...data,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '获取 STS 失败';
-    console.error('sts error:', error);
-    return NextResponse.json({ error: message, enabled: false }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: publicApiError(error, '获取 STS 失败', 'sts error'),
+        enabled: false,
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -46,7 +51,9 @@ export async function GET() {
       allowPrefix: 'media/*',
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '查询失败';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: publicApiError(error, '查询失败', 'sts query error') },
+      { status: 500 }
+    );
   }
 }
