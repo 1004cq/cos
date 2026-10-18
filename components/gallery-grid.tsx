@@ -138,9 +138,7 @@ export function GalleryGrid({
   }, [sections, onSectionVisible]);
 
   if (sections.length === 0) {
-    return (
-      <div className="py-24 text-center text-[15px] text-[var(--photos-muted)]">暂无照片</div>
-    );
+    return <div className="photos-empty">暂无照片</div>;
   }
 
   return (
@@ -150,8 +148,8 @@ export function GalleryGrid({
           {showInlineHeaders && (
             <h2
               className={cn(
-                'photos-section-title px-4 pt-4 pb-2 font-bold tracking-tight',
-                columns >= 7 ? 'text-[15px]' : 'text-[22px]'
+                'photos-section-title px-3.5 pt-3.5 font-bold tracking-tight',
+                columns >= 7 ? 'photos-section-title-sm' : 'photos-section-title-lg'
               )}
             >
               {section.label}

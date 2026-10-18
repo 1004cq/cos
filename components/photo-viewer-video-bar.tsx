@@ -142,7 +142,7 @@ export function PhotoViewerVideoBar({ videoRef, active, onPlayingChange }: Props
 
   return (
     <div
-      className="photos-video-bar shrink-0 mx-3 mb-2 px-3 py-2.5 flex items-center gap-2.5"
+      className="photos-video-bar shrink-0 mx-3 mb-0.5 px-3 py-2.5 flex items-center gap-2.5"
       onTouchStart={(e) => e.stopPropagation()}
       onTouchMove={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}

@@ -21,7 +21,7 @@ export function GalleryTabBar({ density, onDensityChange, onSearchClick, searchA
   return (
     <nav
       className="photos-tab-bar fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1.5 rounded-full"
-      style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}
+      style={{ bottom: 'max(14px, calc(var(--safe-bottom) + 12px))' }}
       aria-label="图库密度"
     >
       {TABS.map((tab) => {
@@ -32,7 +32,7 @@ export function GalleryTabBar({ density, onDensityChange, onSearchClick, searchA
             type="button"
             onClick={() => onDensityChange(tab.id as GalleryDensity)}
             className={cn(
-              'photos-tab-item min-h-[36px] px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors',
+              'photos-tab-item min-h-[36px] min-w-[44px] px-3.5 py-1.5 rounded-full text-[13px] font-medium',
               active ? 'photos-tab-item-active' : 'text-[var(--photos-muted)]'
             )}
           >
@@ -44,7 +44,7 @@ export function GalleryTabBar({ density, onDensityChange, onSearchClick, searchA
         type="button"
         onClick={onSearchClick}
         className={cn(
-          'photos-tab-item min-w-[36px] min-h-[36px] rounded-full flex items-center justify-center transition-colors',
+          'photos-tab-item min-w-[44px] min-h-[36px] rounded-full flex items-center justify-center',
           searchActive ? 'photos-tab-item-active' : 'text-[var(--photos-muted)]'
         )}
         aria-label="搜索"
