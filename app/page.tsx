@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useSession } from 'next-auth/react';
 import { Search, X } from 'lucide-react';
 import { Lightbox } from '@/components/lightbox';
@@ -22,6 +23,21 @@ import {
   yearKey,
 } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
+
+function isGalleryVideo(item: GalleryItem) {
+  return item.kind === 'video' || item.mimeType.startsWith('video/');
+}
+
+/** 在用户手势栈内尝试有声播放（不强制静音） */
+function tryGesturePlay(video: HTMLVideoElement) {
+  video.muted = false;
+  video.defaultMuted = false;
+  video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.removeAttribute('muted');
+  return video.play();
+}
 
 function buildSections(items: GalleryItem[], groupBy: 'day' | 'month' | 'year'): DaySection[] {
   const sorted = [...items].sort(
@@ -86,6 +102,9 @@ export default function HomePage() {
   const [density, setDensity] = useState<GalleryDensity>('all');
   const [headerDateKey, setHeaderDateKey] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  /** 从图库格子点击视频时带入灯箱的「立即播放」意图（滑动切换不带） */
+  const [initialPlayIntent, setInitialPlayIntent] = useState(false);
+  const lightboxVideoRef = useRef<HTMLVideoElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -153,7 +172,42 @@ export default function HomePage() {
 
   function openItem(item: GalleryItem) {
     const idx = flatItems.findIndex((x) => x.id === item.id);
-    if (idx >= 0) setLightboxIndex(idx);
+    if (idx < 0) return;
+
+    const wantPlay = isGalleryVideo(item);
+
+    // 同步挂载灯箱 + video，再在同一点击手势内调用 play()，避免浏览器拦截有声自动播放
+    flushSync(() => {
+      setInitialPlayIntent(wantPlay);
+      setLightboxIndex(idx);
+    });
+
+    if (!wantPlay) return;
+
+    const v = lightboxVideoRef.current;
+    if (!v) return;
+
+    void tryGesturePlay(v).then(
+      () => setInitialPlayIntent(false),
+      () => {
+        /* 保留 intent，灯箱内显示大播放钮降级 */
+      }
+    );
+  }
+
+  const consumePlayIntent = useCallback(() => {
+    setInitialPlayIntent(false);
+  }, []);
+
+  function closeLightbox() {
+    setLightboxIndex(null);
+    setInitialPlayIntent(false);
+  }
+
+  function changeLightboxIndex(next: number) {
+    // 滑动 / 胶片条切换：清除格子点击带来的播放意图
+    setInitialPlayIntent(false);
+    setLightboxIndex(next);
   }
 
   async function handleDeleteOne(id: string) {
@@ -170,7 +224,7 @@ export default function HomePage() {
         throw new Error(data.error || '删除失败');
       }
       setItems((prev) => prev.filter((i) => i.id !== id));
-      setLightboxIndex(null);
+      closeLightbox();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '删除失败');
     } finally {
@@ -288,11 +342,14 @@ export default function HomePage() {
         <Lightbox
           items={flatItems}
           index={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onChange={setLightboxIndex}
+          onClose={closeLightbox}
+          onChange={changeLightboxIndex}
           variant="ios"
           canDelete={isAdmin}
           onDelete={isAdmin ? (id) => void handleDeleteOne(id) : undefined}
+          videoRef={lightboxVideoRef}
+          initialPlayIntent={initialPlayIntent}
+          onPlayIntentConsumed={consumePlayIntent}
         />
       )}
     </div>

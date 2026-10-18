@@ -59,6 +59,11 @@ type Props = {
   canDelete?: boolean;
   onDelete?: (id: string) => void;
   variant?: 'ios' | 'simple';
+  /** 外部 video ref（图库点击时可在用户手势内直接 play） */
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+  /** 从图库格子点击视频打开时为 true，滑动切换应为 false */
+  initialPlayIntent?: boolean;
+  onPlayIntentConsumed?: () => void;
 };
 
 export function Lightbox({
@@ -69,6 +74,9 @@ export function Lightbox({
   canDelete = false,
   onDelete,
   variant = 'ios',
+  videoRef: videoRefProp,
+  initialPlayIntent = false,
+  onPlayIntentConsumed,
 }: Props) {
   const current = items[index];
   const [entered, setEntered] = useState(false);
@@ -78,7 +86,8 @@ export function Lightbox({
   const [chromeVisible, setChromeVisible] = useState(true);
   const [videoPlaying, setVideoPlaying] = useState(false);
   const filmstripRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const internalVideoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = videoRefProp ?? internalVideoRef;
   const hideTimerRef = useRef<number | null>(null);
 
   const prev = useCallback(() => {
@@ -228,6 +237,8 @@ export function Lightbox({
           onScaleChange={() => undefined}
           swipeEnabled
           videoRef={videoRef}
+          initialPlayIntent={initialPlayIntent}
+          onPlayIntentConsumed={onPlayIntentConsumed}
         />
         <div className="absolute top-4 right-4 z-30">
           <button type="button" onClick={onClose} className="btn-ghost !min-h-[44px] rounded-full">
@@ -259,6 +270,8 @@ export function Lightbox({
           swipeEnabled={imageScale === 1}
           videoRef={videoRef}
           onMediaTap={toggleChrome}
+          initialPlayIntent={initialPlayIntent}
+          onPlayIntentConsumed={onPlayIntentConsumed}
         />
       </div>
 
