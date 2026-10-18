@@ -226,13 +226,13 @@ export default function AdminSettingsPage() {
 
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
-        if (data.test.ok) setSuccess('已保存，连通性测试通过');
+        if (data.test.ok) setSuccess('已保存并立即生效，连通性测试通过');
         else {
-          setSuccess('已保存');
+          setSuccess('已保存并立即生效');
           setError(data.test.error || '连通性测试失败');
         }
       } else {
-        setSuccess('配置已保存');
+        setSuccess('配置已保存并立即生效');
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存失败');
@@ -261,8 +261,10 @@ export default function AdminSettingsPage() {
       setTestResult({
         ok: Boolean(data.ok),
         error: data.error,
+        detail: data.detail,
         bucket: data.bucket,
         region: data.region,
+        endpoint: data.endpoint,
         provider: data.provider,
       });
       if (data.ok) setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
@@ -479,9 +481,11 @@ export default function AdminSettingsPage() {
           )}
           <span>
             {testResult.ok
-              ? `headBucket 成功${testResult.bucket ? ` · ${testResult.bucket}` : ''}${
-                  testResult.region ? ` @ ${testResult.region}` : ''
-                }`
+              ? testResult.provider === 's3'
+                ? `S3 连通正常${testResult.detail ? ` · ${testResult.detail}` : testResult.bucket ? ` · ${testResult.bucket}` : ''}`
+                : `headBucket 成功${testResult.bucket ? ` · ${testResult.bucket}` : ''}${
+                    testResult.region ? ` @ ${testResult.region}` : ''
+                  }`
               : testResult.error || '测试失败'}
           </span>
         </div>
@@ -490,7 +494,8 @@ export default function AdminSettingsPage() {
       <div className="rounded-3xl glass p-6 space-y-4">
         <h2 className="text-lg font-semibold">存储厂商</h2>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          切换厂商后保存才会生效。腾讯云 COS 的数据万象能力在 S3 上会自动降级（无缩略/水印则签原图）。
+          切换或修改凭证后保存立即生效（进程内缓存会清空）。S3
+          无数据万象：图库列表优先用封面海报，否则显示占位，不会用原图铺满网格。
         </p>
         <div className="grid gap-2 sm:grid-cols-3">
           {PROVIDER_OPTIONS.map((opt) => (
@@ -530,8 +535,8 @@ export default function AdminSettingsPage() {
         {provider === 's3' ? (
           <>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              适用于 AWS S3、Cloudflare R2、MinIO 等。R2 请填 Endpoint，Region 常用 auto；MinIO 建议开启 Path-Style。
-              无服务端缩略图/水印，列表将签原图或已有海报。
+              适用于 AWS S3、Cloudflare R2、MinIO 等。R2 请填 Endpoint，Region 常用 auto；MinIO 建议开启
+              Path-Style。无服务端缩略时，上传会尽量生成小封面（poster）；列表只用封面或占位，灯箱再加载原图。
             </p>
             <div>
               <label className="block text-sm mb-1.5 font-medium">Access Key ID</label>

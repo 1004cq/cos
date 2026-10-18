@@ -3,9 +3,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { publicApiError } from '@/lib/api-error';
 import { prisma } from '@/lib/prisma';
-import { headObjectSize } from '@/lib/storage';
+import { getStorageProvider, headObjectSize } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
+import { generateAndStoreImagePoster } from '@/lib/image-poster-server';
 import { consumeUploadKey, hasUploadKey } from '@/lib/upload-key-cache';
 import { generateAndStoreVideoPoster } from '@/lib/video-poster-server';
 
@@ -84,7 +85,8 @@ export async function POST(req: NextRequest) {
     const sizeMismatch = cosSize != null && cosSize !== clientSize;
 
     // 视频无客户端海报时：服务端 CI 截帧（短超时；失败仍入库，posterKey 为空）
-    let posterSource: 'client' | 'ci' | 'skipped' | null = resolvedPosterKey
+    // 图片且厂商无 imageProcess：用 sharp 生成小封面，供列表用（避免签原图铺网格）
+    let posterSource: 'client' | 'ci' | 'image' | 'skipped' | null = resolvedPosterKey
       ? 'client'
       : null;
     if (!resolvedPosterKey && mimeType.startsWith('video/')) {
@@ -97,6 +99,20 @@ export async function POST(req: NextRequest) {
         posterSource = 'ci';
       } else {
         posterSource = 'skipped';
+      }
+    } else if (!resolvedPosterKey && mimeType.startsWith('image/')) {
+      const provider = await getStorageProvider();
+      if (!provider.capabilities.imageProcess) {
+        const generated = await generateAndStoreImagePoster(key, {
+          maxEdge: 480,
+          timeoutMs: 15_000,
+        });
+        if (generated) {
+          resolvedPosterKey = generated;
+          posterSource = 'image';
+        } else {
+          posterSource = 'skipped';
+        }
       }
     }
 

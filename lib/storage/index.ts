@@ -41,10 +41,59 @@ export {
 
 export { SIGN_CONCURRENCY };
 
-let cached: { id: StorageProviderId; provider: StorageProvider } | null = null;
+let cached: {
+  fingerprint: string;
+  id: StorageProviderId;
+  provider: StorageProvider;
+} | null = null;
 
-/** 测试或切换厂商后清缓存 */
+/** 配置指纹：厂商或凭证变更后必须重建 Provider（含 S3Client） */
+async function getProviderFingerprint(id: StorageProviderId): Promise<string> {
+  if (id === 's3') {
+    const c = await getS3Config();
+    return [
+      's3',
+      c.accessKeyId,
+      // 不整段写入指纹日志；比对用完整 secret 哈希长度与前后缀即可区分变更
+      `${c.secretAccessKey.length}:${c.secretAccessKey.slice(0, 4)}:${c.secretAccessKey.slice(-4)}`,
+      c.bucket,
+      c.region,
+      c.endpoint,
+      c.forcePathStyle ? '1' : '0',
+      c.cdnDomain,
+      c.publicBaseUrl,
+    ].join('|');
+  }
+  if (id === 'oss') return 'oss';
+  const c = await getCosConfig();
+  return [
+    'cos',
+    c.secretId,
+    `${c.secretKey.length}:${c.secretKey.slice(0, 4)}:${c.secretKey.slice(-4)}`,
+    c.bucket,
+    c.region,
+    c.cdnDomain,
+    String(c.thumbWidth),
+    c.watermarkEnabled ? '1' : '0',
+    c.watermarkText,
+    c.imageStyleThumb,
+    c.imageStyleFull,
+  ].join('|');
+}
+
+function disposeProvider(provider: StorageProvider | null | undefined) {
+  if (!provider) return;
+  const maybe = provider as StorageProvider & { dispose?: () => void };
+  try {
+    maybe.dispose?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 测试或切换厂商 / 改凭证后清缓存，使配置立即生效 */
 export function resetStorageProviderCache() {
+  disposeProvider(cached?.provider);
   cached = null;
 }
 
@@ -52,7 +101,10 @@ bindStorageCacheReset(resetStorageProviderCache);
 
 export async function getStorageProvider(): Promise<StorageProvider> {
   const id = await getStorageProviderId();
-  if (cached && cached.id === id) return cached.provider;
+  const fingerprint = await getProviderFingerprint(id);
+  if (cached && cached.fingerprint === fingerprint) return cached.provider;
+
+  disposeProvider(cached?.provider);
 
   let provider: StorageProvider;
   if (id === 's3') {
@@ -64,7 +116,7 @@ export async function getStorageProvider(): Promise<StorageProvider> {
     provider = new CosStorageProvider();
   }
 
-  cached = { id, provider };
+  cached = { fingerprint, id, provider };
   return provider;
 }
 
@@ -164,7 +216,7 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
   return p.abortMultipartUpload(key, uploadId);
 }
 
-/** 图库/分享：是否应用 COS 万象能力 */
+/** 图库/分享：是否应用 COS 万象能力（与 capabilities.imageProcess 对齐） */
 export async function getImageProcessOptions(): Promise<{
   provider: StorageProviderId;
   watermarkEnabled: boolean;
@@ -172,10 +224,12 @@ export async function getImageProcessOptions(): Promise<{
   imageStyleThumb: string;
   imageStyleFull: string;
   thumbWidth: number;
+  /** 当前厂商是否支持服务端缩略/样式/水印（等同 capabilities.imageProcess） */
   canProcess: boolean;
+  imageProcess: boolean;
 }> {
   const provider = await getStorageProvider();
-  const canProcess = provider.capabilities.imageProcess;
+  const imageProcess = Boolean(provider.capabilities.imageProcess);
   if (provider.id === 'cos') {
     const cfg = await getCosConfig();
     return {
@@ -186,6 +240,7 @@ export async function getImageProcessOptions(): Promise<{
       imageStyleFull: cfg.imageStyleFull,
       thumbWidth: cfg.thumbWidth,
       canProcess: true,
+      imageProcess: true,
     };
   }
   return {
@@ -195,6 +250,7 @@ export async function getImageProcessOptions(): Promise<{
     imageStyleThumb: '',
     imageStyleFull: '',
     thumbWidth: 480,
-    canProcess,
+    canProcess: imageProcess,
+    imageProcess,
   };
 }

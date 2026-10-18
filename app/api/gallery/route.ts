@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // 非 COS：无万象缩略/水印/样式，签名退化为原图（poster 仍用 posterKey）
+    // canProcess === capabilities.imageProcess；false 时禁止用原图铺网格
     const wm = Boolean(proc.canProcess && proc.watermarkEnabled);
     const styleThumb = proc.canProcess ? (proc.imageStyleThumb || '').trim() : '';
     const styleFull = proc.canProcess ? (proc.imageStyleFull || '').trim() : '';
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        // 图片详情：有全图样式则用样式（兼容原图保护）；否则可加水印动态处理
+        // 灯箱用原图签名（COS 可带样式/水印）；列表缩略见下方 thumbUrl
         const url = await getSignedUrl(
           m.key,
           ORIGIN_SIGN_TTL,
@@ -140,27 +140,26 @@ export async function GET(req: NextRequest) {
         }
 
         if (isImage) {
-          try {
-            // COS：列表用缩略/样式；S3 等无处理能力时签原图（可接受降级）
-            thumbUrl = await getSignedUrl(
-              m.key,
-              LIST_SIGN_TTL,
-              styleThumb
-                ? { style: styleThumb }
-                : wantThumb
-                  ? { thumb: true, watermark: wm }
-                  : undefined
-            );
-          } catch (err) {
-            console.warn('gallery image thumb failed:', m.key, err);
-            thumbUrl = null;
+          if (wantThumb) {
+            // COS：数据万象缩略 / 样式
+            try {
+              thumbUrl = await getSignedUrl(
+                m.key,
+                LIST_SIGN_TTL,
+                styleThumb
+                  ? { style: styleThumb }
+                  : { thumb: true, watermark: wm }
+              );
+            } catch (err) {
+              console.warn('gallery image thumb failed:', m.key, err);
+              thumbUrl = null;
+            }
+          } else {
+            // S3 等：仅用已存 poster；无则 null（前端占位），禁止签原图铺网格
+            thumbUrl = posterUrl;
           }
         } else if (isVideo) {
-          if (posterUrl) {
-            thumbUrl = posterUrl;
-          } else {
-            thumbUrl = null;
-          }
+          thumbUrl = posterUrl;
         }
 
         return {

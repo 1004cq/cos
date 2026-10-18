@@ -381,7 +381,8 @@ export function Lightbox({
           >
             {items.map((item, i) => {
               const itemVideo = item.mimeType.startsWith('video/');
-              const thumb = item.posterUrl || item.thumbUrl || (itemVideo ? null : item.url);
+              // 禁止用原图做胶片条缩略（S3 无 poster 时用占位）
+              const thumb = item.posterUrl || item.thumbUrl || null;
               const active = i === index;
               return (
                 <button
