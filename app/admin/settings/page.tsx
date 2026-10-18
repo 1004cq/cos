@@ -2,14 +2,20 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { CheckCircle2, XCircle, Loader2, Save, FlaskConical, KeyRound } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import {
-  PROVIDER_OPTIONS,
-  REGION_OPTIONS,
-  S3_REGION_HINTS,
-  OSS_REGION_HINTS,
-  SOURCE_LABEL,
+  AccountCard,
+  CosForm,
+  OssForm,
+  ProviderSwitcher,
+  ProviderTabs,
+  S3Form,
+  SettingsOverviewBar,
+  StatusBanner,
+  StorageActionsBar,
+  TestResultBanner,
+  type BusyState,
+} from '@/components/admin/settings';
+import {
   hasNonAscii,
   type CosPublicConfig,
   type OssPublicConfig,
@@ -21,7 +27,7 @@ import {
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<'save' | 'saveTest' | 'test' | 'account' | null>(null);
+  const [busy, setBusy] = useState<BusyState>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [meta, setMeta] = useState<Pick<
@@ -325,13 +331,15 @@ export default function AdminSettingsPage() {
     setTestResult(null);
 
     try {
-      const body = { ...buildSaveBody(), provider };
+      const body = buildSaveBody();
+      const providerPayload =
+        provider === 's3' ? body.s3 : provider === 'oss' ? body.oss : body.cos;
       const res = await fetch('/api/admin/settings/cos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          ...(provider === 's3' ? body.s3 : body.cos),
+          ...providerPayload,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as TestResult & { error?: string };
@@ -362,8 +370,12 @@ export default function AdminSettingsPage() {
       : provider === 'oss'
         ? ossMeta?.ready
         : meta?.ready;
-  const providerLabel =
-    provider === 's3' ? 'S3' : provider === 'oss' ? 'OSS' : 'COS';
+  const providerSource =
+    provider === 's3'
+      ? s3Meta?.source
+      : provider === 'oss'
+        ? ossMeta?.source
+        : meta?.source;
 
   async function handleAccountSave(e: React.FormEvent) {
     e.preventDefault();
@@ -429,667 +441,227 @@ export default function AdminSettingsPage() {
     );
   }
 
-  const cdnLooksChinese = hasNonAscii(cdnDomain);
-
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            账号安全 · 对象存储（COS / S3）
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span
-            className={cn(
-              'px-2.5 py-1 rounded-lg glass',
-              providerReady ? 'text-green-700' : 'text-amber-700'
-            )}
-          >
-            {providerLabel} {providerReady ? '就绪' : '未就绪'}
-          </span>
-          <span className="px-2.5 py-1 rounded-lg glass" style={{ color: 'var(--text-muted)' }}>
-            来源：
-            {provider === 's3'
-              ? s3Meta
-                ? SOURCE_LABEL[s3Meta.source]
-                : '—'
-              : provider === 'oss'
-                ? ossMeta
-                  ? SOURCE_LABEL[ossMeta.source]
-                  : '—'
-                : meta
-                  ? SOURCE_LABEL[meta.source]
-                  : '—'}
-          </span>
-        </div>
-      </div>
+    <div className="space-y-6 max-w-3xl pb-24">
+      <SettingsOverviewBar provider={provider} ready={providerReady} source={providerSource} />
+
+      <ProviderSwitcher
+        provider={provider}
+        onChange={setProvider}
+        readyMap={{
+          cos: Boolean(meta?.ready),
+          s3: Boolean(s3Meta?.ready),
+          oss: Boolean(ossMeta?.ready),
+        }}
+      />
 
       <form
-        onSubmit={handleAccountSave}
-        className="rounded-3xl glass p-6 space-y-5"
-        autoComplete="off"
-      >
-        <div className="flex items-center gap-2">
-          <KeyRound className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold">管理员账号</h2>
-        </div>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          修改需验证当前密码；新密码至少 12 位，仅存 bcrypt 哈希。改密或改用户名后需重新登录。
-        </p>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">用户名</label>
-          <input
-            className="input-glass text-sm"
-            type="text"
-            name="account-username"
-            autoComplete="username"
-            value={accountUsername}
-            onChange={(e) => setAccountUsername(e.target.value)}
-            maxLength={32}
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">当前密码</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="current-password"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">新密码（可选）</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="new-password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="至少 12 位，留空则不改密码"
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">确认新密码</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="new-password2"
-            autoComplete="new-password"
-            value={newPassword2}
-            onChange={(e) => setNewPassword2(e.target.value)}
-            placeholder="再次输入新密码"
-            disabled={!newPassword}
-          />
-        </div>
-        {accountError && (
-          <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
-            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{accountError}</span>
-          </div>
-        )}
-        {accountSuccess && !accountError && (
-          <div className="rounded-2xl glass px-4 py-3 text-sm text-green-700 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{accountSuccess}</span>
-          </div>
-        )}
-        <button
-          type="submit"
-          disabled={busy === 'account'}
-          className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-        >
-          {busy === 'account' ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
-          保存账号
-        </button>
-      </form>
-
-      {error && (
-        <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
-          <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-      {success && !error && (
-        <div className="rounded-2xl glass px-4 py-3 text-sm text-green-700 flex items-start gap-2">
-          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{success}</span>
-        </div>
-      )}
-      {testResult && (
-        <div
-          className={cn(
-            'rounded-2xl glass px-4 py-3 text-sm flex items-start gap-2',
-            testResult.ok ? 'text-green-700' : 'text-red-600'
-          )}
-        >
-          {testResult.ok ? (
-            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-          ) : (
-            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          )}
-          <span>
-            {testResult.ok
-              ? testResult.provider === 'oss'
-                ? `OSS 连通正常${testResult.detail ? ` · ${testResult.detail}` : testResult.bucket ? ` · ${testResult.bucket}` : ''}`
-                : testResult.provider === 's3'
-                  ? `S3 连通正常${testResult.detail ? ` · ${testResult.detail}` : testResult.bucket ? ` · ${testResult.bucket}` : ''}`
-                  : `headBucket 成功${testResult.bucket ? ` · ${testResult.bucket}` : ''}${
-                      testResult.region ? ` @ ${testResult.region}` : ''
-                    }`
-              : testResult.error || '测试失败'}
-          </span>
-        </div>
-      )}
-
-      <div className="rounded-3xl glass p-6 space-y-4">
-        <h2 className="text-lg font-semibold">存储厂商</h2>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          切换或修改凭证后保存立即生效。COS 用数据万象；OSS 用图片处理缩略；S3
-          无服务端处理时列表会降级。
-        </p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {PROVIDER_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              disabled={!opt.enabled}
-              onClick={() => setProvider(opt.id)}
-              className={cn(
-                'rounded-2xl border px-3 py-3 text-left transition',
-                provider === opt.id
-                  ? 'border-blue-500 bg-white/80'
-                  : 'border-transparent glass hover:bg-white/50',
-                !opt.enabled && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <p className="text-sm font-medium">{opt.label}</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                {opt.hint}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <form
-        className="rounded-3xl glass p-6 space-y-5"
+        className="rounded-3xl glass p-5 sm:p-6 space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSave(false);
         }}
         autoComplete="off"
+        noValidate
       >
-        <h2 className="text-lg font-semibold">
-          {provider === 's3'
-            ? 'S3 兼容存储'
-            : provider === 'oss'
-              ? '阿里云 OSS'
-              : '腾讯云 COS'}
-        </h2>
-        {provider === 's3' ? (
-          <>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              适用于 AWS S3、Cloudflare R2、MinIO 等。R2 请填 Endpoint，Region 常用 auto；MinIO 建议开启 Path-Style。
-              无服务端缩略图/水印，列表将签原图或已有海报。
-            </p>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Access Key ID</label>
-              <input
-                className="input-glass font-mono text-sm"
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={s3AccessKeyId}
-                onChange={(e) => setS3AccessKeyId(e.target.value)}
-                placeholder={
-                  s3Meta?.accessKeyIdSet
-                    ? `已配置 ${s3Meta.accessKeyId || '****'}，留空不修改`
-                    : 'AKIA… / R2 Access Key'
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Secret Access Key</label>
-              <input
-                className="input-glass font-mono text-sm"
-                type="password"
-                autoComplete="new-password"
-                value={s3SecretAccessKey}
-                onChange={(e) => setS3SecretAccessKey(e.target.value)}
-                placeholder={s3Meta?.secretAccessKeySet ? '已配置则留空不修改' : 'Secret Access Key'}
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Bucket</label>
-              <input
-                className="input-glass font-mono text-sm"
-                value={s3Bucket}
-                onChange={(e) => setS3Bucket(e.target.value)}
-                placeholder="my-bucket"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Region</label>
-              <input
-                className="input-glass font-mono text-sm"
-                list="s3-region-list"
-                value={s3Region}
-                onChange={(e) => setS3Region(e.target.value)}
-                placeholder="auto"
-              />
-              <datalist id="s3-region-list">
-                {S3_REGION_HINTS.map((r) => (
-                  <option key={r} value={r} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Endpoint（可选）</label>
-              <input
-                className="input-glass font-mono text-sm"
-                value={s3Endpoint}
-                onChange={(e) => setS3Endpoint(e.target.value)}
-                placeholder="https://xxx.r2.cloudflarestorage.com"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={s3ForcePathStyle}
-                onChange={(e) => setS3ForcePathStyle(e.target.checked)}
-              />
-              Force path-style（MinIO 等常需开启）
-            </label>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">CDN / 公共域名（可选）</label>
-              <input
-                className="input-glass text-sm"
-                value={s3CdnDomain}
-                onChange={(e) => setS3CdnDomain(e.target.value)}
-                placeholder="cdn.example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Public Base URL（可选）</label>
-              <input
-                className="input-glass text-sm"
-                value={s3PublicBaseUrl}
-                onChange={(e) => setS3PublicBaseUrl(e.target.value)}
-                placeholder="https://pub-xxx.r2.dev"
-              />
-            </div>
-          </>
-        ) : provider === 'oss' ? (
-          <>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Region 形如 oss-cn-hangzhou。缩略图走 OSS 图片处理（x-oss-process）；可选文字水印。自定义域名可填
-              Endpoint 并开启 CNAME。
-            </p>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">AccessKey ID</label>
-              <input
-                className="input-glass font-mono text-sm"
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                value={ossAccessKeyId}
-                onChange={(e) => setOssAccessKeyId(e.target.value)}
-                placeholder={
-                  ossMeta?.accessKeyIdSet
-                    ? `已配置 ${ossMeta.accessKeyId || '****'}，留空不修改`
-                    : 'LTAI…'
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">AccessKey Secret</label>
-              <input
-                className="input-glass font-mono text-sm"
-                type="password"
-                autoComplete="new-password"
-                value={ossAccessKeySecret}
-                onChange={(e) => setOssAccessKeySecret(e.target.value)}
-                placeholder={
-                  ossMeta?.accessKeySecretSet ? '已配置则留空不修改' : 'AccessKey Secret'
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Bucket</label>
-              <input
-                className="input-glass font-mono text-sm"
-                value={ossBucket}
-                onChange={(e) => setOssBucket(e.target.value)}
-                placeholder="my-bucket"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Region</label>
-              <input
-                className="input-glass font-mono text-sm"
-                list="oss-region-list"
-                value={ossRegion}
-                onChange={(e) => setOssRegion(e.target.value)}
-                placeholder="oss-cn-hangzhou"
-                required
-              />
-              <datalist id="oss-region-list">
-                {OSS_REGION_HINTS.map((r) => (
-                  <option key={r} value={r} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Endpoint（可选）</label>
-              <input
-                className="input-glass font-mono text-sm"
-                value={ossEndpoint}
-                onChange={(e) => setOssEndpoint(e.target.value)}
-                placeholder="oss-cn-hangzhou.aliyuncs.com 或自定义域名"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={ossCname}
-                onChange={(e) => setOssCname(e.target.checked)}
-              />
-              Endpoint 为自定义 / CDN 域名（CNAME）
-            </label>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">CDN 域名（可选）</label>
-              <input
-                className="input-glass text-sm"
-                value={ossCdnDomain}
-                onChange={(e) => setOssCdnDomain(e.target.value)}
-                placeholder="cdn.example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">Public Base URL（可选）</label>
-              <input
-                className="input-glass text-sm"
-                value={ossPublicBaseUrl}
-                onChange={(e) => setOssPublicBaseUrl(e.target.value)}
-                placeholder="https://cdn.example.com"
-              />
-            </div>
-            <div>
-              <label className="block text-sm mb-1.5 font-medium">缩略图宽度</label>
-              <input
-                className="input-glass text-sm"
-                type="number"
-                min={120}
-                max={1200}
-                value={ossThumbWidth}
-                onChange={(e) => setOssThumbWidth(Number(e.target.value) || 480)}
-              />
-              <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                120–1200，默认 480（OSS image/resize）
-              </p>
-            </div>
-            <div className="space-y-3 rounded-2xl glass p-4">
-              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={ossWatermarkEnabled}
-                  onChange={(e) => setOssWatermarkEnabled(e.target.checked)}
-                  className="rounded border-black/20"
-                />
-                展示链文字水印（可选）
-              </label>
-              <input
-                className="input-glass text-sm"
-                value={ossWatermarkText}
-                maxLength={40}
-                disabled={!ossWatermarkEnabled}
-                onChange={(e) => setOssWatermarkText(e.target.value)}
-                placeholder="Gallery"
-              />
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                开启后经 OSS 图片处理叠加水印（需桶开通图片处理）。
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              数据库配置优先。Bucket 需含 APPID（如 your-bucket-1250000000）。香港桶 Region 填 ap-hongkong。
-            </p>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">SecretId</label>
-          <input
-            className="input-glass font-mono text-sm"
-            type="text"
-            name="cos-secret-id"
-            autoComplete="off"
-            spellCheck={false}
-            value={secretId}
-            onChange={(e) => setSecretId(e.target.value)}
-            placeholder={
-              meta?.secretIdSet
-                ? `已配置 ${meta.secretId || '****'}，留空不修改`
-                : 'AKIDxxxxxxxx'
-            }
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold">存储配置</h2>
+          <ProviderTabs provider={provider} onChange={setProvider} />
+        </div>
+
+        {/* Keep all provider forms mounted so tab switches do not drop filled values */}
+        <div className={provider === 'cos' ? 'block' : 'hidden'}>
+          <CosForm
+            values={{
+              secretId,
+              secretKey,
+              bucket,
+              region,
+              cdnDomain,
+              thumbWidth,
+              watermarkEnabled,
+              watermarkText,
+              imageStyleThumb,
+              imageStyleFull,
+            }}
+            meta={meta}
+            onChange={(key, value) => {
+              switch (key) {
+                case 'secretId':
+                  setSecretId(value as string);
+                  break;
+                case 'secretKey':
+                  setSecretKey(value as string);
+                  break;
+                case 'bucket':
+                  setBucket(value as string);
+                  break;
+                case 'region':
+                  setRegion(value as string);
+                  break;
+                case 'cdnDomain':
+                  setCdnDomain(value as string);
+                  break;
+                case 'thumbWidth':
+                  setThumbWidth(value as number);
+                  break;
+                case 'watermarkEnabled':
+                  setWatermarkEnabled(value as boolean);
+                  break;
+                case 'watermarkText':
+                  setWatermarkText(value as string);
+                  break;
+                case 'imageStyleThumb':
+                  setImageStyleThumb(value as string);
+                  break;
+                case 'imageStyleFull':
+                  setImageStyleFull(value as string);
+                  break;
+              }
+            }}
+          />
+        </div>
+        <div className={provider === 's3' ? 'block' : 'hidden'}>
+          <S3Form
+            values={{
+              accessKeyId: s3AccessKeyId,
+              secretAccessKey: s3SecretAccessKey,
+              bucket: s3Bucket,
+              region: s3Region,
+              endpoint: s3Endpoint,
+              forcePathStyle: s3ForcePathStyle,
+              cdnDomain: s3CdnDomain,
+              publicBaseUrl: s3PublicBaseUrl,
+            }}
+            meta={s3Meta}
+            onChange={(key, value) => {
+              switch (key) {
+                case 'accessKeyId':
+                  setS3AccessKeyId(value as string);
+                  break;
+                case 'secretAccessKey':
+                  setS3SecretAccessKey(value as string);
+                  break;
+                case 'bucket':
+                  setS3Bucket(value as string);
+                  break;
+                case 'region':
+                  setS3Region(value as string);
+                  break;
+                case 'endpoint':
+                  setS3Endpoint(value as string);
+                  break;
+                case 'forcePathStyle':
+                  setS3ForcePathStyle(value as boolean);
+                  break;
+                case 'cdnDomain':
+                  setS3CdnDomain(value as string);
+                  break;
+                case 'publicBaseUrl':
+                  setS3PublicBaseUrl(value as string);
+                  break;
+              }
+            }}
+          />
+        </div>
+        <div className={provider === 'oss' ? 'block' : 'hidden'}>
+          <OssForm
+            values={{
+              accessKeyId: ossAccessKeyId,
+              accessKeySecret: ossAccessKeySecret,
+              bucket: ossBucket,
+              region: ossRegion,
+              endpoint: ossEndpoint,
+              cname: ossCname,
+              cdnDomain: ossCdnDomain,
+              publicBaseUrl: ossPublicBaseUrl,
+              thumbWidth: ossThumbWidth,
+              watermarkEnabled: ossWatermarkEnabled,
+              watermarkText: ossWatermarkText,
+            }}
+            meta={ossMeta}
+            onChange={(key, value) => {
+              switch (key) {
+                case 'accessKeyId':
+                  setOssAccessKeyId(value as string);
+                  break;
+                case 'accessKeySecret':
+                  setOssAccessKeySecret(value as string);
+                  break;
+                case 'bucket':
+                  setOssBucket(value as string);
+                  break;
+                case 'region':
+                  setOssRegion(value as string);
+                  break;
+                case 'endpoint':
+                  setOssEndpoint(value as string);
+                  break;
+                case 'cname':
+                  setOssCname(value as boolean);
+                  break;
+                case 'cdnDomain':
+                  setOssCdnDomain(value as string);
+                  break;
+                case 'publicBaseUrl':
+                  setOssPublicBaseUrl(value as string);
+                  break;
+                case 'thumbWidth':
+                  setOssThumbWidth(value as number);
+                  break;
+                case 'watermarkEnabled':
+                  setOssWatermarkEnabled(value as boolean);
+                  break;
+                case 'watermarkText':
+                  setOssWatermarkText(value as string);
+                  break;
+              }
+            }}
           />
         </div>
 
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">SecretKey</label>
-          <input
-            className="input-glass font-mono text-sm"
-            type="password"
-            name="cos-secret-key"
-            autoComplete="new-password"
-            value={secretKey}
-            onChange={(e) => setSecretKey(e.target.value)}
-            placeholder={meta?.secretKeySet ? '已配置则留空不修改' : '请输入 SecretKey'}
+        <div className="space-y-3 pt-1">
+          {error ? <StatusBanner variant="error">{error}</StatusBanner> : null}
+          {success && !error ? <StatusBanner variant="success">{success}</StatusBanner> : null}
+          {testResult ? <TestResultBanner result={testResult} /> : null}
+          <StorageActionsBar
+            busy={busy}
+            sticky
+            onSave={() => void handleSave(false)}
+            onSaveAndTest={() => void handleSave(true)}
+            onTestOnly={() => void handleTestOnly()}
           />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            密钥仅保存在服务端（加密），不会回填明文，也不会写入浏览器本地存储
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">Bucket</label>
-          <input
-            className="input-glass font-mono text-sm"
-            value={bucket}
-            onChange={(e) => setBucket(e.target.value)}
-            placeholder="your-bucket-1250000000"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">Region</label>
-          <input
-            className="input-glass font-mono text-sm"
-            list="cos-region-list"
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            placeholder="ap-hongkong"
-            required
-          />
-          <datalist id="cos-region-list">
-            {REGION_OPTIONS.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            本站桶在香港：请填 ap-hongkong
-          </p>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {REGION_OPTIONS.slice(0, 6).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRegion(r)}
-                className={cn(
-                  'text-xs px-2 py-1 rounded-lg transition',
-                  region === r ? 'bg-white/80 text-blue-600' : 'btn-ghost !py-1 !px-2'
-                )}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <label className="block text-sm font-medium">CDN / 自定义域名</label>
-            <button
-              type="button"
-              className="text-xs text-blue-600 hover:underline"
-              onClick={() => setCdnDomain('')}
-            >
-              清空
-            </button>
-          </div>
-          <input
-            className="input-glass text-sm"
-            value={cdnDomain}
-            onChange={(e) => setCdnDomain(e.target.value)}
-            placeholder="可留空（推荐）"
-          />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            网站可用中文域；COS 文件走默认域名（如
-            your-bucket-1250000000.cos.ap-hongkong.myqcloud.com）。CDN
-            仅英文且已绑到本桶时才填，切勿填中文站域名。
-          </p>
-          {(cdnLooksChinese || meta?.cdnIgnoredUnsafe) && (
-            <p className="text-xs mt-2 text-amber-700">
-              中文站域名不能当 COS CDN（运行时会忽略）。请点「清空」后保存。
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">缩略图宽度</label>
-          <input
-            className="input-glass text-sm"
-            type="number"
-            min={120}
-            max={1200}
-            value={thumbWidth}
-            onChange={(e) => setThumbWidth(Number(e.target.value) || 480)}
-          />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            120–1200，默认 480（数据万象列表缩略图）
-          </p>
-        </div>
-
-        <div className="space-y-3 rounded-2xl glass p-4">
-          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={watermarkEnabled}
-              onChange={(e) => setWatermarkEnabled(e.target.checked)}
-              className="rounded border-black/20"
-            />
-            展示链文字水印（可选）
-          </label>
-          <input
-            className="input-glass text-sm"
-            value={watermarkText}
-            maxLength={40}
-            disabled={!watermarkEnabled}
-            onChange={(e) => setWatermarkText(e.target.value)}
-            placeholder="Gallery"
-          />
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            开启后，图库/分享的缩略图与图片详情预览经数据万象叠加水印（参数签入签名）。
-            管理端 /api/sign 原图下载不加。水印无法防录屏或截图。
-          </p>
-        </div>
-
-        <div className="space-y-3 rounded-2xl glass p-4">
-          <p className="text-sm font-medium">图片样式名（原图保护）</p>
-          <p className="text-xs text-amber-800 bg-amber-50/80 rounded-xl px-3 py-2">
-            若图片全部 403「please use style」，请到腾讯云数据万象关闭「原图保护」，
-            或在控制台创建样式后把样式名填在下面（例如 thumb / full）。
-          </p>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-              列表缩略样式名
-            </label>
-            <input
-              className="input-glass text-sm"
-              value={imageStyleThumb}
-              onChange={(e) => setImageStyleThumb(e.target.value)}
-              placeholder="如 thumb（可留空）"
-            />
-          </div>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-              详情/全图样式名
-            </label>
-            <input
-              className="input-glass text-sm"
-              value={imageStyleFull}
-              onChange={(e) => setImageStyleFull(e.target.value)}
-              placeholder="如 full（可留空）"
-            />
-          </div>
-        </div>
-
-          </>
-        )}
-
-        <div className="flex flex-wrap gap-2 pt-2">
-          <button
-            type="submit"
-            disabled={Boolean(busy)}
-            className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'save' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            保存
-          </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void handleSave(true)}
-            className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'saveTest' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FlaskConical className="w-4 h-4" />
-            )}
-            保存并测试
-          </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void handleTestOnly()}
-            className="btn-ghost text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'test' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FlaskConical className="w-4 h-4" />
-            )}
-            仅测试
-          </button>
         </div>
       </form>
+
+      <AccountCard
+        values={{
+          username: accountUsername,
+          currentPassword,
+          newPassword,
+          newPassword2,
+        }}
+        busy={busy === 'account'}
+        error={accountError}
+        success={accountSuccess}
+        onChange={(key, value) => {
+          switch (key) {
+            case 'username':
+              setAccountUsername(value);
+              break;
+            case 'currentPassword':
+              setCurrentPassword(value);
+              break;
+            case 'newPassword':
+              setNewPassword(value);
+              break;
+            case 'newPassword2':
+              setNewPassword2(value);
+              break;
+          }
+        }}
+        onSubmit={handleAccountSave}
+      />
     </div>
   );
 }
