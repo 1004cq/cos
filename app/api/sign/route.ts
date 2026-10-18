@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getSignedUrl } from '@/lib/cos';
+import { getSignedUrl } from '@/lib/storage';
 import { prisma } from '@/lib/prisma';
 
 /**

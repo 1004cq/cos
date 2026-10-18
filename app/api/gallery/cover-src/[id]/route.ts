@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getObjectBytes } from '@/lib/cos';
+import { getObjectBytes } from '@/lib/storage';
 import { getClientIp } from '@/lib/client-ip';
 
 type Params = { params: Promise<{ id: string }> };

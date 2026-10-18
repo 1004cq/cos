@@ -4,49 +4,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { CheckCircle2, XCircle, Loader2, Save, FlaskConical, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-type CosPublicConfig = {
-  secretId: string;
-  secretIdSet: boolean;
-  secretKeySet: boolean;
-  bucket: string;
-  region: string;
-  cdnDomain: string;
-  cdnDomainEffective?: string;
-  cdnIgnoredUnsafe?: boolean;
-  thumbWidth: number;
-  watermarkEnabled?: boolean;
-  watermarkText?: string;
-  imageStyleThumb?: string;
-  imageStyleFull?: string;
-  source: 'database' | 'env' | 'mixed';
-  ready: boolean;
-};
-
-type TestResult = { ok: boolean; error?: string; bucket?: string; region?: string };
-
-const REGION_OPTIONS = [
-  'ap-hongkong',
-  'ap-guangzhou',
-  'ap-shanghai',
-  'ap-nanjing',
-  'ap-beijing',
-  'ap-chengdu',
-  'ap-chongqing',
-  'ap-singapore',
-  'ap-tokyo',
-  'na-siliconvalley',
-] as const;
-
-const SOURCE_LABEL: Record<CosPublicConfig['source'], string> = {
-  env: '环境变量',
-  database: '数据库',
-  mixed: '混合（DB + env）',
-};
-
-function hasNonAscii(s: string) {
-  return /[^\x00-\x7F]/.test(s);
-}
+import {
+  PROVIDER_OPTIONS,
+  REGION_OPTIONS,
+  S3_REGION_HINTS,
+  SOURCE_LABEL,
+  hasNonAscii,
+  type CosPublicConfig,
+  type S3PublicConfig,
+  type StorageProviderId,
+  type TestResult,
+} from '@/components/admin/settings-types';
 
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
@@ -71,6 +39,20 @@ export default function AdminSettingsPage() {
   const [imageStyleFull, setImageStyleFull] = useState('');
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
+  const [provider, setProvider] = useState<StorageProviderId>('cos');
+  const [s3AccessKeyId, setS3AccessKeyId] = useState('');
+  const [s3SecretAccessKey, setS3SecretAccessKey] = useState('');
+  const [s3Bucket, setS3Bucket] = useState('');
+  const [s3Region, setS3Region] = useState('auto');
+  const [s3Endpoint, setS3Endpoint] = useState('');
+  const [s3ForcePathStyle, setS3ForcePathStyle] = useState(false);
+  const [s3CdnDomain, setS3CdnDomain] = useState('');
+  const [s3PublicBaseUrl, setS3PublicBaseUrl] = useState('');
+  const [s3Meta, setS3Meta] = useState<Pick<
+    S3PublicConfig,
+    'accessKeyId' | 'accessKeyIdSet' | 'secretAccessKeySet' | 'source' | 'ready'
+  > | null>(null);
+
   const [accountUsername, setAccountUsername] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -89,25 +71,43 @@ export default function AdminSettingsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '读取配置失败');
 
+      const cos = data.cos || data;
+      const s3 = data.s3 || {};
+      setProvider((data.provider as StorageProviderId) || 'cos');
       setMeta({
-        secretId: data.secretId || '',
-        secretIdSet: Boolean(data.secretIdSet),
-        secretKeySet: Boolean(data.secretKeySet),
-        source: data.source || 'env',
-        ready: Boolean(data.ready),
-        cdnIgnoredUnsafe: Boolean(data.cdnIgnoredUnsafe),
+        secretId: cos.secretId || '',
+        secretIdSet: Boolean(cos.secretIdSet),
+        secretKeySet: Boolean(cos.secretKeySet),
+        source: cos.source || 'env',
+        ready: Boolean(cos.ready),
+        cdnIgnoredUnsafe: Boolean(cos.cdnIgnoredUnsafe),
       });
-      setBucket(data.bucket || '');
-      setRegion(data.region || 'ap-hongkong');
-      // 展示库里的值；若含中文会提示清空
-      setCdnDomain(data.cdnDomain || '');
-      setThumbWidth(Number(data.thumbWidth) || 480);
-      setWatermarkEnabled(Boolean(data.watermarkEnabled));
-      setWatermarkText(data.watermarkText || '陈庆.我爱你');
-      setImageStyleThumb(data.imageStyleThumb || '');
-      setImageStyleFull(data.imageStyleFull || '');
+      setBucket(cos.bucket || '');
+      setRegion(cos.region || 'ap-hongkong');
+      setCdnDomain(cos.cdnDomain || '');
+      setThumbWidth(Number(cos.thumbWidth) || 480);
+      setWatermarkEnabled(Boolean(cos.watermarkEnabled));
+      setWatermarkText(cos.watermarkText || '陈庆.我爱你');
+      setImageStyleThumb(cos.imageStyleThumb || '');
+      setImageStyleFull(cos.imageStyleFull || '');
       setSecretId('');
       setSecretKey('');
+
+      setS3Meta({
+        accessKeyId: s3.accessKeyId || '',
+        accessKeyIdSet: Boolean(s3.accessKeyIdSet),
+        secretAccessKeySet: Boolean(s3.secretAccessKeySet),
+        source: s3.source || 'env',
+        ready: Boolean(s3.ready),
+      });
+      setS3Bucket(s3.bucket || '');
+      setS3Region(s3.region || 'auto');
+      setS3Endpoint(s3.endpoint || '');
+      setS3ForcePathStyle(Boolean(s3.forcePathStyle));
+      setS3CdnDomain(s3.cdnDomain || '');
+      setS3PublicBaseUrl(s3.publicBaseUrl || '');
+      setS3AccessKeyId('');
+      setS3SecretAccessKey('');
 
       if (accRes.ok) {
         const acc = await accRes.json();
@@ -126,12 +126,29 @@ export default function AdminSettingsPage() {
     void load();
   }, [load]);
 
-  function buildPayload() {
-    const payload: Record<string, unknown> = {
+  function buildSaveBody() {
+    if (provider === 's3') {
+      const s3: Record<string, unknown> = {
+        bucket: s3Bucket.trim(),
+        region: s3Region.trim() || 'auto',
+        endpoint: s3Endpoint.trim(),
+        forcePathStyle: s3ForcePathStyle,
+        cdnDomain: s3CdnDomain.trim(),
+        publicBaseUrl: s3PublicBaseUrl.trim(),
+      };
+      const ak = s3AccessKeyId.trim();
+      const sk = s3SecretAccessKey.trim();
+      if (ak && !ak.includes('****')) s3.accessKeyId = ak;
+      if (sk && !sk.includes('****')) s3.secretAccessKey = sk;
+      return { provider: 's3' as const, s3 };
+    }
+
+    let cdn = cdnDomain.trim();
+    if (hasNonAscii(cdn) || /xn--/i.test(cdn)) cdn = '';
+    const cos: Record<string, unknown> = {
       bucket: bucket.trim(),
       region: region.trim(),
-      // 始终提交（含空字符串），以便清空数据库中的旧 CDN
-      cdnDomain: cdnDomain.trim(),
+      cdnDomain: cdn,
       thumbWidth: Number(thumbWidth) || 480,
       watermarkEnabled,
       watermarkText: watermarkText.trim() || '陈庆.我爱你',
@@ -140,9 +157,9 @@ export default function AdminSettingsPage() {
     };
     const sid = secretId.trim();
     const skey = secretKey.trim();
-    if (sid && !sid.includes('****')) payload.secretId = sid;
-    if (skey && !skey.includes('****')) payload.secretKey = skey;
-    return payload;
+    if (sid && !sid.includes('****')) cos.secretId = sid;
+    if (skey && !skey.includes('****')) cos.secretKey = skey;
+    return { provider: 'cos' as const, cos };
   }
 
   async function handleSave(withTest: boolean) {
@@ -152,66 +169,70 @@ export default function AdminSettingsPage() {
     setTestResult(null);
 
     try {
-      if (!bucket.trim() || !region.trim()) {
+      if (provider === 'oss') {
+        throw new Error('阿里云 OSS 尚未实现，请选择腾讯云 COS 或 S3 兼容');
+      }
+      if (provider === 's3') {
+        if (!s3Bucket.trim()) throw new Error('Bucket 为必填');
+      } else if (!bucket.trim() || !region.trim()) {
         throw new Error('Bucket 与 Region 为必填');
       }
 
-      // 中文站域名不能当 COS CDN：保存前自动清空并提示
-      let cdn = cdnDomain.trim();
-      let clearedChinese = false;
-      if (hasNonAscii(cdn) || /xn--/i.test(cdn)) {
-        cdn = '';
-        setCdnDomain('');
-        clearedChinese = true;
-      }
-
+      const body = { ...buildSaveBody(), test: withTest };
       const res = await fetch('/api/admin/settings/cos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...buildPayload(), cdnDomain: cdn, test: withTest }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '保存失败');
 
+      setProvider((data.provider as StorageProviderId) || provider);
+      const cos = data.cos || data;
+      const s3 = data.s3 || {};
       setMeta({
-        secretId: data.secretId || '',
-        secretIdSet: Boolean(data.secretIdSet),
-        secretKeySet: Boolean(data.secretKeySet),
-        source: data.source || 'database',
-        ready: Boolean(data.ready),
-        cdnIgnoredUnsafe: Boolean(data.cdnIgnoredUnsafe),
+        secretId: cos.secretId || '',
+        secretIdSet: Boolean(cos.secretIdSet),
+        secretKeySet: Boolean(cos.secretKeySet),
+        source: cos.source || 'database',
+        ready: Boolean(data.ready ?? cos.ready),
+        cdnIgnoredUnsafe: Boolean(cos.cdnIgnoredUnsafe),
       });
-      setBucket(data.bucket || bucket);
-      setRegion(data.region || region);
-      setCdnDomain(data.cdnDomain ?? '');
-      setThumbWidth(Number(data.thumbWidth) || thumbWidth);
-      setWatermarkEnabled(Boolean(data.watermarkEnabled));
-      setWatermarkText(data.watermarkText || watermarkText);
-      setImageStyleThumb(data.imageStyleThumb || '');
-      setImageStyleFull(data.imageStyleFull || '');
+      setBucket(cos.bucket || bucket);
+      setRegion(cos.region || region);
+      setCdnDomain(cos.cdnDomain ?? '');
+      setThumbWidth(Number(cos.thumbWidth) || thumbWidth);
+      setWatermarkEnabled(Boolean(cos.watermarkEnabled));
+      setWatermarkText(cos.watermarkText || watermarkText);
+      setImageStyleThumb(cos.imageStyleThumb || '');
+      setImageStyleFull(cos.imageStyleFull || '');
       setSecretId('');
       setSecretKey('');
+      setS3Meta({
+        accessKeyId: s3.accessKeyId || '',
+        accessKeyIdSet: Boolean(s3.accessKeyIdSet),
+        secretAccessKeySet: Boolean(s3.secretAccessKeySet),
+        source: s3.source || 'database',
+        ready: Boolean(s3.ready),
+      });
+      setS3Bucket(s3.bucket || s3Bucket);
+      setS3Region(s3.region || s3Region);
+      setS3Endpoint(s3.endpoint || '');
+      setS3ForcePathStyle(Boolean(s3.forcePathStyle));
+      setS3CdnDomain(s3.cdnDomain || '');
+      setS3PublicBaseUrl(s3.publicBaseUrl || '');
+      setS3AccessKeyId('');
+      setS3SecretAccessKey('');
 
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
-        if (data.test.ok) {
-          setSuccess(
-            clearedChinese
-              ? '已保存；中文站域名不能当 COS CDN，已自动清空。连通性测试通过。'
-              : '已保存，连通性测试通过。CDN 可留空（推荐）。'
-          );
-        } else {
-          setSuccess(clearedChinese ? '已保存；中文站域名不能当 COS CDN，已自动清空' : '已保存');
+        if (data.test.ok) setSuccess('已保存，连通性测试通过');
+        else {
+          setSuccess('已保存');
           setError(data.test.error || '连通性测试失败');
         }
       } else {
-        setSuccess(
-          clearedChinese
-            ? '已保存；中文站域名不能当 COS CDN，已自动清空。上传走 COS 源站。'
-            : cdn
-              ? '配置已保存'
-              : '配置已保存；CDN 已清空，上传将使用 COS 源站（推荐）'
-        );
+        setSuccess('配置已保存');
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存失败');
@@ -227,24 +248,31 @@ export default function AdminSettingsPage() {
     setTestResult(null);
 
     try {
-      const payload = buildPayload();
+      const body = { ...buildSaveBody(), provider };
       const res = await fetch('/api/admin/settings/cos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          provider,
+          ...(provider === 's3' ? body.s3 : body.cos),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as TestResult & { error?: string };
-      setTestResult({ ok: Boolean(data.ok), error: data.error, bucket: data.bucket, region: data.region });
-      if (data.ok) {
-        setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
-      } else {
-        setError(data.error || '连通性测试失败');
-      }
+      setTestResult({
+        ok: Boolean(data.ok),
+        error: data.error,
+        bucket: data.bucket,
+        region: data.region,
+        provider: data.provider,
+      });
+      if (data.ok) setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
+      else setError(data.error || '连通性测试失败');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '测试失败');
     } finally {
       setBusy(null);
       setSecretKey('');
+      setS3SecretAccessKey('');
     }
   }
 
@@ -320,7 +348,7 @@ export default function AdminSettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            账号安全 · 腾讯云 COS
+            账号安全 · 对象存储（COS / S3）
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -330,7 +358,7 @@ export default function AdminSettingsPage() {
               meta?.ready ? 'text-green-700' : 'text-amber-700'
             )}
           >
-            COS {meta?.ready ? '就绪' : '未就绪'}
+            {provider === 's3' ? 'S3' : 'COS'} {(provider === 's3' ? s3Meta?.ready : meta?.ready) ? '就绪' : '未就绪'}
           </span>
           <span className="px-2.5 py-1 rounded-lg glass" style={{ color: 'var(--text-muted)' }}>
             来源：{meta ? SOURCE_LABEL[meta.source] : '—'}
@@ -459,6 +487,35 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
+      <div className="rounded-3xl glass p-6 space-y-4">
+        <h2 className="text-lg font-semibold">存储厂商</h2>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          切换厂商后保存才会生效。腾讯云 COS 的数据万象能力在 S3 上会自动降级（无缩略/水印则签原图）。
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {PROVIDER_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={!opt.enabled}
+              onClick={() => setProvider(opt.id)}
+              className={cn(
+                'rounded-2xl border px-3 py-3 text-left transition',
+                provider === opt.id
+                  ? 'border-blue-500 bg-white/80'
+                  : 'border-transparent glass hover:bg-white/50',
+                !opt.enabled && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              <p className="text-sm font-medium">{opt.label}</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                {opt.hint}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <form
         className="rounded-3xl glass p-6 space-y-5"
         onSubmit={(e) => {
@@ -467,11 +524,108 @@ export default function AdminSettingsPage() {
         }}
         autoComplete="off"
       >
-        <h2 className="text-lg font-semibold">腾讯云 COS</h2>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          数据库配置优先。Bucket 需含 APPID（如 cq-1327876314）。香港桶 Region 填 ap-hongkong。
-        </p>
-
+        <h2 className="text-lg font-semibold">
+          {provider === 's3' ? 'S3 兼容存储' : '腾讯云 COS'}
+        </h2>
+        {provider === 's3' ? (
+          <>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              适用于 AWS S3、Cloudflare R2、MinIO 等。R2 请填 Endpoint，Region 常用 auto；MinIO 建议开启 Path-Style。
+              无服务端缩略图/水印，列表将签原图或已有海报。
+            </p>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Access Key ID</label>
+              <input
+                className="input-glass font-mono text-sm"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={s3AccessKeyId}
+                onChange={(e) => setS3AccessKeyId(e.target.value)}
+                placeholder={
+                  s3Meta?.accessKeyIdSet
+                    ? `已配置 ${s3Meta.accessKeyId || '****'}，留空不修改`
+                    : 'AKIA… / R2 Access Key'
+                }
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Secret Access Key</label>
+              <input
+                className="input-glass font-mono text-sm"
+                type="password"
+                autoComplete="new-password"
+                value={s3SecretAccessKey}
+                onChange={(e) => setS3SecretAccessKey(e.target.value)}
+                placeholder={s3Meta?.secretAccessKeySet ? '已配置则留空不修改' : 'Secret Access Key'}
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Bucket</label>
+              <input
+                className="input-glass font-mono text-sm"
+                value={s3Bucket}
+                onChange={(e) => setS3Bucket(e.target.value)}
+                placeholder="my-bucket"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Region</label>
+              <input
+                className="input-glass font-mono text-sm"
+                list="s3-region-list"
+                value={s3Region}
+                onChange={(e) => setS3Region(e.target.value)}
+                placeholder="auto"
+              />
+              <datalist id="s3-region-list">
+                {S3_REGION_HINTS.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Endpoint（可选）</label>
+              <input
+                className="input-glass font-mono text-sm"
+                value={s3Endpoint}
+                onChange={(e) => setS3Endpoint(e.target.value)}
+                placeholder="https://xxx.r2.cloudflarestorage.com"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={s3ForcePathStyle}
+                onChange={(e) => setS3ForcePathStyle(e.target.checked)}
+              />
+              Force path-style（MinIO 等常需开启）
+            </label>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">CDN / 公共域名（可选）</label>
+              <input
+                className="input-glass text-sm"
+                value={s3CdnDomain}
+                onChange={(e) => setS3CdnDomain(e.target.value)}
+                placeholder="cdn.example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Public Base URL（可选）</label>
+              <input
+                className="input-glass text-sm"
+                value={s3PublicBaseUrl}
+                onChange={(e) => setS3PublicBaseUrl(e.target.value)}
+                placeholder="https://pub-xxx.r2.dev"
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              数据库配置优先。Bucket 需含 APPID（如 cq-1327876314）。香港桶 Region 填 ap-hongkong。
+            </p>
         <div>
           <label className="block text-sm mb-1.5 font-medium">SecretId</label>
           <input
@@ -649,6 +803,9 @@ export default function AdminSettingsPage() {
             />
           </div>
         </div>
+
+          </>
+        )}
 
         <div className="flex flex-wrap gap-2 pt-2">
           <button

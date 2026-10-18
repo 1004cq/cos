@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { generateKey, getUploadPresignedUrl } from '@/lib/cos';
+import { generateKey, getUploadPresignedUrl } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 
 export async function POST(req: NextRequest) {

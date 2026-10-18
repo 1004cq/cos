@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
-import { getCosConfig } from '@/lib/settings';
+import {
+  getImageProcessOptions,
+  getSignedUrl,
+  SIGN_CONCURRENCY,
+} from '@/lib/storage';
 import { mapWithConcurrency } from '@/lib/utils';
 import { recordVisit } from '@/lib/visit';
 
@@ -29,8 +32,8 @@ export async function GET(req: NextRequest) {
           ? { mimeType: { startsWith: 'video/' as const } }
           : {};
 
-    const [cfg, items, imageCount, videoCount] = await Promise.all([
-      getCosConfig(),
+    const [proc, items, imageCount, videoCount] = await Promise.all([
+      getImageProcessOptions(),
       prisma.media.findMany({
         where: {
           ...mimeFilter,
@@ -61,9 +64,11 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const wm = Boolean(cfg.watermarkEnabled);
-    const styleThumb = (cfg.imageStyleThumb || '').trim();
-    const styleFull = (cfg.imageStyleFull || '').trim();
+    // 非 COS：无万象缩略/水印/样式，签名退化为原图（poster 仍用 posterKey）
+    const wm = Boolean(proc.canProcess && proc.watermarkEnabled);
+    const styleThumb = proc.canProcess ? (proc.imageStyleThumb || '').trim() : '';
+    const styleFull = proc.canProcess ? (proc.imageStyleFull || '').trim() : '';
+    const wantThumb = proc.canProcess;
 
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
@@ -94,7 +99,9 @@ export async function GET(req: NextRequest) {
               LIST_SIGN_TTL,
               styleThumb
                 ? { style: styleThumb }
-                : { thumb: true, watermark: wm }
+                : wantThumb
+                  ? { thumb: true, watermark: wm }
+                  : undefined
             );
           } catch {
             try {
@@ -115,13 +122,15 @@ export async function GET(req: NextRequest) {
 
         if (isImage) {
           try {
-            // 列表禁止回退到原图 url，避免网格拉数 MB 原片
+            // COS：列表用缩略/样式；S3 等无处理能力时签原图（可接受降级）
             thumbUrl = await getSignedUrl(
               m.key,
               LIST_SIGN_TTL,
               styleThumb
                 ? { style: styleThumb }
-                : { thumb: true, watermark: wm }
+                : wantThumb
+                  ? { thumb: true, watermark: wm }
+                  : undefined
             );
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);

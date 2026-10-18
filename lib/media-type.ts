@@ -88,5 +88,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/** 超过此大小提示保持屏幕常亮（单 PUT 仍无损；超大文件后续可加 multipart） */
+/** 超过此大小提示保持屏幕常亮；并建议走分片上传（若 Provider 支持） */
 export const LARGE_UPLOAD_BYTES = 100 * 1024 * 1024;
+export const MULTIPART_THRESHOLD = LARGE_UPLOAD_BYTES;
+export const MULTIPART_PART_SIZE = 8 * 1024 * 1024;

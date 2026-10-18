@@ -3,8 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { compare } from 'bcryptjs';
-import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
-import { getCosConfig } from '@/lib/settings';
+import {
+  getImageProcessOptions,
+  getSignedUrl,
+  SIGN_CONCURRENCY,
+} from '@/lib/storage';
 import { recordVisit } from '@/lib/visit';
 import { mapWithConcurrency } from '@/lib/utils';
 
@@ -49,8 +52,9 @@ async function loadShareMedia(share: {
 }
 
 async function buildShareItems(mediaList: MediaRow[]) {
-  const cfg = await getCosConfig();
-  const wm = Boolean(cfg.watermarkEnabled);
+  const proc = await getImageProcessOptions();
+  const wm = Boolean(proc.canProcess && proc.watermarkEnabled);
+  const canThumb = proc.canProcess;
 
   return mapWithConcurrency(mediaList, SIGN_CONCURRENCY, async (m) => {
     const isImage = m.mimeType.startsWith('image/');
@@ -66,13 +70,18 @@ async function buildShareItems(mediaList: MediaRow[]) {
 
     if (m.posterKey && m.posterKey.startsWith('media/')) {
       try {
-        posterUrl = await getSignedUrl(m.posterKey, 900, {
-          thumb: true,
-          watermark: wm,
-        });
+        posterUrl = await getSignedUrl(
+          m.posterKey,
+          900,
+          canThumb ? { thumb: true, watermark: wm } : undefined
+        );
       } catch {
         try {
-          posterUrl = await getSignedUrl(m.posterKey, 900, { watermark: wm });
+          posterUrl = await getSignedUrl(
+            m.posterKey,
+            900,
+            wm ? { watermark: true } : undefined
+          );
         } catch {
           posterUrl = null;
         }
@@ -81,7 +90,11 @@ async function buildShareItems(mediaList: MediaRow[]) {
 
     if (isImage) {
       try {
-        thumbUrl = await getSignedUrl(m.key, 900, { thumb: true, watermark: wm });
+        thumbUrl = await getSignedUrl(
+          m.key,
+          900,
+          canThumb ? { thumb: true, watermark: wm } : undefined
+        );
       } catch {
         thumbUrl = null;
       }

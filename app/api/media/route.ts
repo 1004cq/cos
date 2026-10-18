@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { headObjectSize } from '@/lib/cos';
+import { headObjectSize } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
 import { generateAndStoreVideoPoster } from '@/lib/video-poster-server';

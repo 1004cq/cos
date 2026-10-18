@@ -1,4 +1,8 @@
-import { getSignedUrl, putObjectBuffer } from '@/lib/cos';
+import {
+  getSignedUrl,
+  getStorageProvider,
+  putObjectBuffer,
+} from '@/lib/storage';
 
 /** 上传入库路径默认短超时，避免 CI 截帧堵死整次上传 */
 export const DEFAULT_POSTER_TIMEOUT_MS = 12_000;
@@ -30,6 +34,12 @@ export async function generateAndStoreVideoPoster(
   options?: { time?: number; timeoutMs?: number }
 ): Promise<string | null> {
   if (!videoKey.startsWith('media/')) return null;
+
+  const provider = await getStorageProvider();
+  if (!provider.capabilities.videoSnapshot) {
+    // S3 等无 CI 截帧：跳过（客户端海报或空封面）
+    return null;
+  }
 
   const time = options?.time ?? 1;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_POSTER_TIMEOUT_MS;
