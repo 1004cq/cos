@@ -156,7 +156,7 @@ export function normalizeCdnHost(input: string): string {
 /** 中文/IDN 网站域名不能当 COS CDN，否则签名 host 错误导致 404 */
 export function isUnsafeCdnHost(host: string): boolean {
   if (!host) return false;
-  // 含非 ASCII（如 陈庆.我爱你）
+  // 含非 ASCII（如中文域名）不能当 COS CDN
   if (/[^\x00-\x7F]/.test(host)) return true;
   // punycode 中文域（xn--…）同样不能当 COS CDN
   if (host.toLowerCase().includes('xn--')) return true;
@@ -241,10 +241,10 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
       process.env.COS_WATERMARK_ENABLED === 'true';
   }
 
-  let watermarkText = '陈庆.我爱你';
+  let watermarkText = 'Gallery';
   if (dbWmText !== null) {
     fromDb++;
-    watermarkText = dbWmText.trim() || '陈庆.我爱你';
+    watermarkText = dbWmText.trim() || 'Gallery';
   } else if (process.env.COS_WATERMARK_TEXT?.trim()) {
     watermarkText = process.env.COS_WATERMARK_TEXT.trim();
   }
@@ -367,7 +367,7 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   }
   if (input.watermarkText !== undefined) {
     const t = input.watermarkText.trim().slice(0, 40);
-    await upsert('cos.watermarkText', t || '陈庆.我爱你', false);
+    await upsert('cos.watermarkText', t || 'Gallery', false);
   }
   if (input.imageStyleThumb !== undefined) {
     await upsert(

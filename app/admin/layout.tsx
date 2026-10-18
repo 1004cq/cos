@@ -94,7 +94,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-white/50 glass-strong sticky top-0 h-screen">
         <div className="px-5 py-5 border-b border-white/40">
-          <p className="text-base font-semibold tracking-tight">陈庆.我爱你</p>
+          <p className="text-base font-semibold tracking-tight">相册</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
             管理后台
           </p>
@@ -134,7 +134,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div>
           <p className="font-semibold text-sm">管理后台</p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            陈庆.我爱你
+            相册
           </p>
         </div>
         <button
