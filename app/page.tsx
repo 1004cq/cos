@@ -184,21 +184,29 @@ export default function HomePage() {
     <div className="photos-app min-h-[100dvh] flex flex-col bg-[#FFFFFF]">
       <header
         className="sticky top-0 z-20 bg-[#FFFFFF]/92 backdrop-blur-xl border-b border-black/[0.06]"
-        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        style={{ paddingTop: 'var(--safe-top)' }}
       >
-        <div className="flex items-start justify-between gap-2 px-4 pt-2 pb-2 min-h-[52px]">
+        <div className="flex items-start justify-between gap-2 px-4 pt-1.5 pb-1.5 min-h-[48px]">
           <div className="min-w-0 flex-1">
-            <h1 className="text-[34px] font-bold leading-tight tracking-tight text-black">
+            <h1 className="text-[29px] font-bold leading-[1.15] tracking-tight text-black">
               图库
             </h1>
             {!loading && headerLabel && (
-              <p className="text-[15px] font-semibold text-black/80 mt-0.5">{headerLabel}</p>
+              <p className="text-[13px] font-semibold text-black/70 mt-px leading-snug">
+                {headerLabel}
+              </p>
             )}
           </div>
         </div>
 
-        {searchOpen && (
-          <div className="px-4 pb-3 flex gap-2 items-center">
+        <div
+          className={cn(
+            'photos-search-panel px-4',
+            searchOpen && 'photos-search-panel-open'
+          )}
+          aria-hidden={!searchOpen}
+        >
+          <div className="flex gap-2 items-center">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--photos-muted)]" />
               <input
@@ -207,7 +215,8 @@ export default function HomePage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索文件名或标题"
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-[#F2F2F7] text-[15px] outline-none"
-                autoFocus
+                autoFocus={searchOpen}
+                tabIndex={searchOpen ? 0 : -1}
               />
             </div>
             <button
@@ -218,24 +227,27 @@ export default function HomePage() {
                 setSearchQuery('');
               }}
               aria-label="关闭搜索"
+              tabIndex={searchOpen ? 0 : -1}
             >
               <X className="w-5 h-5" />
             </button>
           </div>
-        )}
+        </div>
       </header>
 
       {error && <p className="text-center px-4 py-3 text-sm text-red-500">{error}</p>}
 
-      <main className="flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] touch-pan-y">
+      <main className="flex-1 pb-[calc(72px+var(--safe-bottom))] touch-pan-y">
         {loading ? (
-          <div
-            className="photos-grid"
-            style={{ gridTemplateColumns: `repeat(${skeletonCols}, minmax(0, 1fr))` }}
-          >
-            {Array.from({ length: skeletonCols * 4 }).map((_, i) => (
-              <div key={i} className="aspect-square bg-[#E5E5EA] animate-pulse" />
-            ))}
+          <div className="photos-grid-wrap pt-0.5">
+            <div
+              className="photos-grid"
+              style={{ gridTemplateColumns: `repeat(${skeletonCols}, minmax(0, 1fr))` }}
+            >
+              {Array.from({ length: skeletonCols * 4 }).map((_, i) => (
+                <div key={i} className="aspect-square bg-[#E5E5EA] animate-pulse" />
+              ))}
+            </div>
           </div>
         ) : (
           <GalleryPinchGrid density={density} onDensityChange={setDensity}>

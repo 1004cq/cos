@@ -37,7 +37,7 @@ function FilmstripThumb({
   isVideo?: boolean;
 }) {
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-[#3A3A3C]">
       <MediaCover
         id={`strip-${id}`}
         posterUrl={posterUrl}
@@ -181,6 +181,11 @@ export function Lightbox({
   const timeLabel = formatTimeOfDay(when);
   const title = mediaDisplayTitle(current.title, current.filename);
   const isVideo = current.mimeType.startsWith('video/');
+  const hasSize =
+    typeof current.width === 'number' &&
+    current.width > 0 &&
+    typeof current.height === 'number' &&
+    current.height > 0;
 
   function toggleChrome() {
     setChromeVisible((v) => {
@@ -243,7 +248,7 @@ export function Lightbox({
       aria-modal="true"
       aria-label={title}
     >
-      {/* 媒体层：占满全屏 */}
+      {/* 媒体层：占满全屏（桌面端左右留白由 CSS 处理） */}
       <div className="photos-viewer-media absolute inset-0 z-0">
         <PhotoViewerCarousel
           items={items}
@@ -257,14 +262,14 @@ export function Lightbox({
         />
       </div>
 
-      {/* 返回键：始终可见（白底圆形左箭头），不随 chrome 隐藏 */}
+      {/* 返回键：始终可见，不随 chrome 隐藏 */}
       <button
         type="button"
         onClick={onClose}
         className="photos-icon-btn-viewer absolute z-[35]"
         style={{
-          top: 'max(12px, calc(env(safe-area-inset-top) + 8px))',
-          left: '12px',
+          top: 'max(12px, calc(var(--safe-top) + 8px))',
+          left: 'max(12px, calc(var(--safe-left) + 8px))',
         }}
         aria-label="返回"
         onTouchStart={(e) => e.stopPropagation()}
@@ -276,24 +281,26 @@ export function Lightbox({
       {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏） */}
       <header
         className={cn(
-          'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-end gap-2 px-2 py-1.5 min-h-[48px] transition-opacity duration-250',
+          'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-3 py-1.5 min-h-[52px] transition-opacity duration-200',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}
+        style={{ paddingTop: 'max(10px, var(--safe-top))' }}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {/* 占位：与左侧固定返回键对齐，让日期居中 */}
-        <span className="w-9 h-9 shrink-0 opacity-0 pointer-events-none" aria-hidden />
+        {/* 占位：与左侧固定返回键对齐，避免日期胶囊重叠 */}
+        <span className="w-11 h-11 shrink-0 opacity-0 pointer-events-none" aria-hidden />
 
         <button
           type="button"
-          className="photos-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[128px] transition-opacity duration-200"
-          style={{ top: 'max(10px, calc(env(safe-area-inset-top) + 6px))' }}
+          className="photos-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[120px] max-w-[min(52vw,200px)] transition-opacity duration-200"
+          style={{ top: 'max(10px, calc(var(--safe-top) + 6px))' }}
           onClick={() => setInfoOpen((v) => !v)}
         >
-          <span className="text-[13px] font-semibold leading-tight text-black">{weekday}</span>
+          <span className="text-[13px] font-semibold leading-tight text-black truncate max-w-full">
+            {weekday}
+          </span>
           <span className="text-[11px] text-[var(--photos-muted)] leading-tight mt-0.5">
             {timeLabel}
           </span>
@@ -301,7 +308,8 @@ export function Lightbox({
 
         <button
           type="button"
-          className="photos-icon-btn-viewer"
+          className="photos-icon-btn-viewer shrink-0"
+          style={{ marginRight: 'max(0px, var(--safe-right))' }}
           aria-label="更多"
           onClick={() => setMenuOpen((v) => !v)}
         >
@@ -311,12 +319,12 @@ export function Lightbox({
 
       {menuOpen && chromeVisible && (
         <div
-          className="absolute right-3 z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px]"
-          style={{ top: 'calc(env(safe-area-inset-top) + 52px)' }}
+          className="absolute right-3 z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px] backdrop-blur-xl"
+          style={{ top: 'calc(var(--safe-top) + 52px)' }}
         >
           <button
             type="button"
-            className="w-full text-left px-4 py-2.5 text-[15px] hover:bg-black/5"
+            className="w-full text-left px-4 py-2.5 text-[15px] min-h-[44px] hover:bg-black/5"
             onClick={() => {
               setMenuOpen(false);
               void handleShare();
@@ -327,7 +335,7 @@ export function Lightbox({
           {canDelete && onDelete ? (
             <button
               type="button"
-              className="w-full text-left px-4 py-2.5 text-[15px] text-red-500 hover:bg-black/5"
+              className="w-full text-left px-4 py-2.5 text-[15px] min-h-[44px] text-red-500 hover:bg-black/5"
               onClick={() => {
                 setMenuOpen(false);
                 if (confirm('确定删除？')) onDelete(current.id);
@@ -341,12 +349,13 @@ export function Lightbox({
 
       {infoOpen && chromeVisible && (
         <div
-          className="absolute inset-x-4 z-30 px-4 py-3 rounded-2xl bg-[#F2F2F7]/95 text-sm shadow-sm"
-          style={{ top: 'calc(env(safe-area-inset-top) + 56px)' }}
+          className="photos-info-panel absolute inset-x-4 z-30 px-3.5 py-2.5 text-sm"
+          style={{ top: 'calc(var(--safe-top) + 56px)' }}
         >
-          <p className="font-medium truncate">{title}</p>
-          <p className="text-[var(--photos-muted)] mt-1 text-xs">
+          <p className="font-medium text-[14px] leading-snug truncate">{title}</p>
+          <p className="text-[var(--photos-muted)] mt-1 text-[12px] leading-snug">
             {weekday} · {timeLabel}
+            {hasSize ? ` · ${current.width}×${current.height}` : ''}
           </p>
         </div>
       )}
@@ -354,10 +363,10 @@ export function Lightbox({
       {/* 底栏浮层：不占文档流，不挤压媒体 */}
       <div
         className={cn(
-          'photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col transition-opacity duration-250',
+          'photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col gap-1.5 transition-opacity duration-200',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+        style={{ paddingBottom: 'max(8px, var(--safe-bottom))' }}
         onPointerDown={(e) => {
           e.stopPropagation();
           if (videoPlaying) scheduleAutoHide();
@@ -377,7 +386,7 @@ export function Lightbox({
         {items.length > 1 && (
           <div
             ref={filmstripRef}
-            className="photos-filmstrip flex gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar"
+            className="photos-filmstrip flex overflow-x-auto no-scrollbar"
           >
             {items.map((item, i) => {
               const itemVideo = item.mimeType.startsWith('video/');
@@ -391,9 +400,9 @@ export function Lightbox({
                   data-thumb-index={i}
                   onClick={() => onChange(i)}
                   className={cn(
-                    'photos-filmstrip-thumb shrink-0 w-11 h-11 rounded-[6px] overflow-hidden border-2 transition-all duration-200 bg-[#E5E5EA]',
+                    'photos-filmstrip-thumb shrink-0 w-11 h-11 overflow-hidden border-2 transition-all duration-200',
                     active
-                      ? 'border-[#007AFF] opacity-100 scale-105'
+                      ? 'photos-filmstrip-thumb-active border-[#007AFF] opacity-100 scale-105'
                       : 'border-transparent opacity-55'
                   )}
                 >
