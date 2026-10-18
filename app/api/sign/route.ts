@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { publicApiError } from '@/lib/api-error';
 import { getSignedUrl } from '@/lib/storage';
 import { prisma } from '@/lib/prisma';
 
@@ -65,8 +66,9 @@ export async function GET(req: NextRequest) {
       thumb: wantThumb && (isImage || isVideo),
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '生成签名失败';
-    console.error('sign error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: publicApiError(error, '生成签名失败', 'sign error') },
+      { status: 500 }
+    );
   }
 }

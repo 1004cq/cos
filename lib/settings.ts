@@ -35,9 +35,60 @@ export type CosRuntimeConfig = {
   source: 'database' | 'env' | 'mixed';
 };
 
-function deriveKey(): Buffer {
-  const secret = process.env.NEXTAUTH_SECRET || process.env.SETTINGS_ENCRYPT_KEY || 'cos-dev-insecure-key';
+const DEV_FALLBACK_SECRET = 'cos-dev-insecure-key';
+let warnedDevFallback = false;
+
+function hashSecret(secret: string): Buffer {
   return createHash('sha256').update(secret).digest();
+}
+
+/**
+ * 加密密钥来源（优先独立 SETTINGS_ENCRYPT_KEY，兼容旧数据用的 NEXTAUTH_SECRET）：
+ * 1. SETTINGS_ENCRYPT_KEY（推荐生产单独配置）
+ * 2. NEXTAUTH_SECRET
+ * 3. 仅开发：硬编码弱密钥 + 警告
+ */
+function resolveEncryptSecrets(): string[] {
+  const dedicated = (process.env.SETTINGS_ENCRYPT_KEY || '').trim();
+  const nextAuth = (process.env.NEXTAUTH_SECRET || '').trim();
+  const secrets: string[] = [];
+  if (dedicated) secrets.push(dedicated);
+  if (nextAuth && nextAuth !== dedicated) secrets.push(nextAuth);
+  return secrets;
+}
+
+function primaryEncryptSecret(): string {
+  const secrets = resolveEncryptSecrets();
+  if (secrets.length > 0) return secrets[0]!;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '生产环境必须配置 SETTINGS_ENCRYPT_KEY 或 NEXTAUTH_SECRET，禁止使用弱加密密钥'
+    );
+  }
+
+  if (!warnedDevFallback) {
+    warnedDevFallback = true;
+    console.warn(
+      '[settings] 警告：未配置 SETTINGS_ENCRYPT_KEY / NEXTAUTH_SECRET，使用开发弱密钥。生产部署前务必配置。'
+    );
+  }
+  return DEV_FALLBACK_SECRET;
+}
+
+/** 生产启动检查：缺少加密密钥则拒绝启动 */
+export function assertSettingsEncryptConfigured(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  const secrets = resolveEncryptSecrets();
+  if (secrets.length === 0) {
+    throw new Error(
+      '生产环境缺少 SETTINGS_ENCRYPT_KEY 或 NEXTAUTH_SECRET：拒绝启动以避免弱密钥加密配置'
+    );
+  }
+}
+
+function deriveKey(secret = primaryEncryptSecret()): Buffer {
+  return hashSecret(secret);
 }
 
 /** 简单 AES-256-GCM 加密，格式 iv:tag:cipher 均为 base64 */
@@ -54,12 +105,34 @@ export function decryptSecret(payload: string): string {
   if (!ivB64 || !tagB64 || !dataB64) {
     return payload;
   }
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey(), Buffer.from(ivB64, 'base64'));
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(dataB64, 'base64')),
-    decipher.final(),
-  ]).toString('utf8');
+
+  // 兼容：优先 SETTINGS_ENCRYPT_KEY，失败再试 NEXTAUTH_SECRET / 开发弱密钥
+  const candidates = resolveEncryptSecrets();
+  if (candidates.length === 0 && process.env.NODE_ENV !== 'production') {
+    candidates.push(DEV_FALLBACK_SECRET);
+  }
+  if (candidates.length === 0) {
+    candidates.push(primaryEncryptSecret());
+  }
+
+  let lastErr: unknown;
+  for (const secret of candidates) {
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        deriveKey(secret),
+        Buffer.from(ivB64, 'base64')
+      );
+      decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(dataB64, 'base64')),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('解密配置密钥失败');
 }
 
 function maskSecret(value: string): string {
@@ -83,7 +156,7 @@ export function normalizeCdnHost(input: string): string {
 /** 中文/IDN 网站域名不能当 COS CDN，否则签名 host 错误导致 404 */
 export function isUnsafeCdnHost(host: string): boolean {
   if (!host) return false;
-  // 含非 ASCII（如 陈庆.我爱你）
+  // 含非 ASCII（如中文域名）不能当 COS CDN
   if (/[^\x00-\x7F]/.test(host)) return true;
   // punycode 中文域（xn--…）同样不能当 COS CDN
   if (host.toLowerCase().includes('xn--')) return true;
@@ -168,10 +241,10 @@ export async function getCosConfig(): Promise<CosRuntimeConfig> {
       process.env.COS_WATERMARK_ENABLED === 'true';
   }
 
-  let watermarkText = '陈庆.我爱你';
+  let watermarkText = 'Gallery';
   if (dbWmText !== null) {
     fromDb++;
-    watermarkText = dbWmText.trim() || '陈庆.我爱你';
+    watermarkText = dbWmText.trim() || 'Gallery';
   } else if (process.env.COS_WATERMARK_TEXT?.trim()) {
     watermarkText = process.env.COS_WATERMARK_TEXT.trim();
   }
@@ -294,7 +367,7 @@ export async function saveCosConfig(input: CosConfigInput): Promise<void> {
   }
   if (input.watermarkText !== undefined) {
     const t = input.watermarkText.trim().slice(0, 40);
-    await upsert('cos.watermarkText', t || '陈庆.我爱你', false);
+    await upsert('cos.watermarkText', t || 'Gallery', false);
   }
   if (input.imageStyleThumb !== undefined) {
     await upsert(

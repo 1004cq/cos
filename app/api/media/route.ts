@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { publicApiError } from '@/lib/api-error';
 import { prisma } from '@/lib/prisma';
 import { headObjectSize } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
+import { consumeUploadKey, hasUploadKey } from '@/lib/upload-key-cache';
 import { generateAndStoreVideoPoster } from '@/lib/video-poster-server';
 
 export async function POST(req: NextRequest) {
@@ -26,10 +28,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '非法的对象键' }, { status: 400 });
     }
 
+    // 必须是本进程近期预签名签发的 key（防任意 media/* 冒名入库）
+    if (!hasUploadKey(key)) {
+      return NextResponse.json(
+        { error: '上传凭证无效或已过期，请重新选择文件上传' },
+        { status: 400 }
+      );
+    }
+
     let resolvedPosterKey: string | null = null;
     if (posterKey != null && posterKey !== '') {
       if (typeof posterKey !== 'string' || !posterKey.startsWith('media/')) {
         return NextResponse.json({ error: '非法的海报对象键' }, { status: 400 });
+      }
+      // 客户端海报也应来自预签名；服务端 CI 截帧生成的 key 不在缓存中，入库后再写
+      if (!hasUploadKey(posterKey)) {
+        return NextResponse.json(
+          { error: '海报上传凭证无效或已过期' },
+          { status: 400 }
+        );
       }
       resolvedPosterKey = posterKey;
     }
@@ -100,6 +117,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    consumeUploadKey(key);
+    if (resolvedPosterKey && posterSource === 'client') {
+      consumeUploadKey(resolvedPosterKey);
+    }
+
     return NextResponse.json({
       ...media,
       clientSize,
@@ -108,8 +130,9 @@ export async function POST(req: NextRequest) {
       posterSource,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : '入库失败';
-    console.error('create media error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: publicApiError(error, '入库失败', 'create media error') },
+      { status: 500 }
+    );
   }
 }
