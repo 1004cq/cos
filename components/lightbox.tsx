@@ -262,15 +262,11 @@ export function Lightbox({
         />
       </div>
 
-      {/* 返回键：始终可见，不随 chrome 隐藏 */}
+      {/* 返回键：始终可见，避让刘海/横屏安全区，不随 chrome 隐藏 */}
       <button
         type="button"
         onClick={onClose}
-        className="photos-icon-btn-viewer absolute z-[35]"
-        style={{
-          top: 'max(12px, calc(var(--safe-top) + 8px))',
-          left: 'max(12px, calc(var(--safe-left) + 8px))',
-        }}
+        className="photos-icon-btn-viewer photos-viewer-back absolute z-[35]"
         aria-label="返回"
         onTouchStart={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -278,13 +274,12 @@ export function Lightbox({
         <ChevronLeft className="w-5 h-5" strokeWidth={2.75} />
       </button>
 
-      {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏） */}
+      {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏）；安全区由 CSS 处理 */}
       <header
         className={cn(
           'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-3 py-1.5 min-h-[52px] transition-opacity duration-200',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingTop: 'max(10px, var(--safe-top))' }}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -294,8 +289,7 @@ export function Lightbox({
 
         <button
           type="button"
-          className="photos-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[120px] max-w-[min(52vw,200px)] transition-opacity duration-200"
-          style={{ top: 'max(10px, calc(var(--safe-top) + 6px))' }}
+          className="photos-date-capsule photos-viewer-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[120px] max-w-[min(52vw,200px)] transition-opacity duration-200"
           onClick={() => setInfoOpen((v) => !v)}
         >
           <span className="text-[13px] font-semibold leading-tight text-black truncate max-w-full">
@@ -309,7 +303,6 @@ export function Lightbox({
         <button
           type="button"
           className="photos-icon-btn-viewer shrink-0"
-          style={{ marginRight: 'max(0px, var(--safe-right))' }}
           aria-label="更多"
           onClick={() => setMenuOpen((v) => !v)}
         >
@@ -318,10 +311,7 @@ export function Lightbox({
       </header>
 
       {menuOpen && chromeVisible && (
-        <div
-          className="absolute right-3 z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px] backdrop-blur-xl"
-          style={{ top: 'calc(var(--safe-top) + 52px)' }}
-        >
+        <div className="photos-viewer-menu absolute z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px] backdrop-blur-xl">
           <button
             type="button"
             className="w-full text-left px-4 py-2.5 text-[15px] min-h-[44px] hover:bg-black/5"
@@ -348,10 +338,7 @@ export function Lightbox({
       )}
 
       {infoOpen && chromeVisible && (
-        <div
-          className="photos-info-panel absolute inset-x-4 z-30 px-3.5 py-2.5 text-sm"
-          style={{ top: 'calc(var(--safe-top) + 56px)' }}
-        >
+        <div className="photos-info-panel photos-viewer-info absolute z-30 px-3.5 py-2.5 text-sm">
           <p className="font-medium text-[14px] leading-snug truncate">{title}</p>
           <p className="text-[var(--photos-muted)] mt-1 text-[12px] leading-snug">
             {weekday} · {timeLabel}
@@ -360,13 +347,12 @@ export function Lightbox({
         </div>
       )}
 
-      {/* 底栏浮层：不占文档流，不挤压媒体 */}
+      {/* 底栏浮层：底部/左右安全区由 CSS 处理，不挤压媒体 */}
       <div
         className={cn(
           'photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col gap-1.5 transition-opacity duration-200',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingBottom: 'max(8px, var(--safe-bottom))' }}
         onPointerDown={(e) => {
           e.stopPropagation();
           if (videoPlaying) scheduleAutoHide();

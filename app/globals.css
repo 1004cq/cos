@@ -13,10 +13,14 @@
   --primary-hover: #2563eb;
   --shadow: 0 8px 32px rgba(31, 38, 135, 0.08);
   --shadow-lg: 0 16px 48px rgba(31, 38, 135, 0.12);
+  /* 统一安全区：组件优先用这些变量，勿直接写 env(safe-area-inset-*) */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* 图库底栏：Tab 高度约 48px + 与安全区间距 12–14px */
+  --photos-tab-clearance: calc(64px + var(--safe-bottom));
+  --photos-tab-offset: calc(12px + var(--safe-bottom));
   --photos-muted: #8E8E93;
   --photos-separator: rgba(60, 60, 67, 0.12);
 }
@@ -175,10 +179,41 @@ body::before {
   transform: scale(1.04);
 }
 
+/* ── 安全区工具类 ── */
+.safe-pt {
+  padding-top: var(--safe-top);
+}
+.safe-pb {
+  padding-bottom: var(--safe-bottom);
+}
+.safe-pl {
+  padding-left: var(--safe-left);
+}
+.safe-pr {
+  padding-right: var(--safe-right);
+}
+.safe-px {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+.safe-inset-x {
+  left: var(--safe-left);
+  right: var(--safe-right);
+}
+
 /* ── iOS 照片风格（前台图库） ── */
 .photos-app {
   color: #000;
   -webkit-font-smoothing: antialiased;
+}
+
+.photos-app-header {
+  padding-top: var(--safe-top);
+}
+
+.photos-app-main {
+  /* 为悬浮 Tab Bar + 底部安全区留空，避免最后一行被挡住 */
+  padding-bottom: var(--photos-tab-clearance);
 }
 
 .photos-grid-wrap {
@@ -292,6 +327,9 @@ body::before {
 }
 
 .photos-tab-bar {
+  bottom: max(14px, var(--photos-tab-offset));
+  /* 横屏刘海：左右不贴边 */
+  max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 24px);
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(28px) saturate(1.9);
   -webkit-backdrop-filter: blur(28px) saturate(1.9);
@@ -424,6 +462,9 @@ body::before {
 }
 
 .photos-viewer-chrome-top {
+  padding-top: max(10px, var(--safe-top));
+  padding-left: max(8px, var(--safe-left));
+  padding-right: max(8px, var(--safe-right));
   background: linear-gradient(
     to bottom,
     rgba(255, 255, 255, 0.98) 0%,
@@ -438,6 +479,9 @@ body::before {
 }
 
 .photos-viewer-chrome-bottom {
+  padding-bottom: max(8px, var(--safe-bottom));
+  padding-left: max(0px, var(--safe-left));
+  padding-right: max(0px, var(--safe-right));
   background: linear-gradient(
     to top,
     rgba(255, 255, 255, 0.98) 0%,
@@ -459,10 +503,34 @@ body::before {
   }
 }
 
+/* 灯箱返回键：始终避开刘海 / 横屏安全区 */
+.photos-viewer-back {
+  top: max(12px, calc(var(--safe-top) + 8px));
+  left: max(12px, calc(var(--safe-left) + 8px));
+}
+
+.photos-viewer-date-capsule {
+  top: max(10px, calc(var(--safe-top) + 6px));
+}
+
+.photos-viewer-menu {
+  top: calc(var(--safe-top) + 52px);
+  right: max(12px, calc(var(--safe-right) + 8px));
+}
+
+.photos-viewer-info {
+  top: calc(var(--safe-top) + 56px);
+  left: max(16px, calc(var(--safe-left) + 12px));
+  right: max(16px, calc(var(--safe-right) + 12px));
+}
+
 .photos-filmstrip {
   background: transparent;
   gap: 6px;
-  padding: 6px 12px 4px;
+  padding-top: 6px;
+  padding-bottom: 4px;
+  padding-left: max(12px, var(--safe-left));
+  padding-right: max(12px, var(--safe-right));
 }
 
 .photos-filmstrip-thumb {

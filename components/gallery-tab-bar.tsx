@@ -21,7 +21,6 @@ export function GalleryTabBar({ density, onDensityChange, onSearchClick, searchA
   return (
     <nav
       className="photos-tab-bar fixed left-1/2 -translate-x-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1.5 rounded-full"
-      style={{ bottom: 'max(14px, calc(var(--safe-bottom) + 12px))' }}
       aria-label="图库密度"
     >
       {TABS.map((tab) => {
