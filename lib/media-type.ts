@@ -88,5 +88,11 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-/** 超过此大小提示保持屏幕常亮（单 PUT 仍无损；超大文件后续可加 multipart） */
+/** 超过此大小：提示 Safari / 常亮，并自动走 COS 分片上传（仍按原字节无损） */
 export const LARGE_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/** 与 LARGE_UPLOAD_BYTES 相同：超过则 multipart */
+export const MULTIPART_THRESHOLD = LARGE_UPLOAD_BYTES;
+
+/** 分片大小 8MB（除最后一片外须 ≥1MB） */
+export const MULTIPART_PART_SIZE = 8 * 1024 * 1024;

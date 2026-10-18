@@ -4,21 +4,23 @@ import { getSignedUrl, SIGN_CONCURRENCY } from '@/lib/cos';
 import { getCosConfig } from '@/lib/settings';
 import { mapWithConcurrency } from '@/lib/utils';
 import { recordVisit } from '@/lib/visit';
+import { getOrSignCached } from '@/lib/sign-cache';
 
-/** 列表缩略/封面签名稍长，减少 20 人同时反复打 gallery */
+/** 列表缩略/封面签名；原图改由灯箱按需 /api/sign */
 const LIST_SIGN_TTL = 3600;
-const ORIGIN_SIGN_TTL = 1800;
 
 /**
  * 公开主页图库：无需登录
- * 列表只依赖 thumbUrl/posterUrl，原图 url 供详情使用
+ * 仅返回 thumbUrl/posterUrl；url 置空，打开灯箱再签原图
+ * Query: page（默认 1）、pageSize（默认 40，最大 100）、type
  */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
     const pageSize = Math.min(
       100,
-      Math.max(1, parseInt(searchParams.get('pageSize') || '80', 10) || 80)
+      Math.max(1, parseInt(searchParams.get('pageSize') || '40', 10) || 40)
     );
     const type = searchParams.get('type') || 'all';
 
@@ -29,14 +31,17 @@ export async function GET(req: NextRequest) {
           ? { mimeType: { startsWith: 'video/' as const } }
           : {};
 
-    const [cfg, items, imageCount, videoCount] = await Promise.all([
+    const where = {
+      ...mimeFilter,
+      key: { startsWith: 'media/' },
+    };
+
+    const [cfg, items, imageCount, videoCount, total] = await Promise.all([
       getCosConfig(),
       prisma.media.findMany({
-        where: {
-          ...mimeFilter,
-          key: { startsWith: 'media/' },
-        },
+        where,
         orderBy: [{ takenAt: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
         take: pageSize,
         select: {
           id: true,
@@ -59,11 +64,12 @@ export async function GET(req: NextRequest) {
       prisma.media.count({
         where: { mimeType: { startsWith: 'video/' }, key: { startsWith: 'media/' } },
       }),
+      prisma.media.count({ where }),
     ]);
 
     const wm = Boolean(cfg.watermarkEnabled);
     const styleThumb = (cfg.imageStyleThumb || '').trim();
-    const styleFull = (cfg.imageStyleFull || '').trim();
+    const cacheVariant = `${styleThumb || 'mogr'}|wm:${wm ? 1 : 0}`;
 
     const signed = await mapWithConcurrency(items, SIGN_CONCURRENCY, async (m) => {
       if (!m.key.startsWith('media/')) return null;
@@ -72,67 +78,49 @@ export async function GET(req: NextRequest) {
       const isVideo = m.mimeType.startsWith('video/');
 
       try {
-        // 图片详情：有全图样式则用样式（兼容原图保护）；否则可加水印动态处理
-        const url = await getSignedUrl(
-          m.key,
-          ORIGIN_SIGN_TTL,
-          isImage
-            ? styleFull
-              ? { style: styleFull }
-              : wm
-                ? { watermark: true }
-                : undefined
-            : undefined
-        );
         let posterUrl: string | null = null;
         let thumbUrl: string | null = null;
 
         if (m.posterKey && m.posterKey.startsWith('media/')) {
           try {
-            posterUrl = await getSignedUrl(
-              m.posterKey,
+            posterUrl = await getOrSignCached(
+              m.id,
+              'poster',
               LIST_SIGN_TTL,
-              styleThumb
-                ? { style: styleThumb }
-                : { thumb: true, watermark: wm }
+              () =>
+                getSignedUrl(
+                  m.posterKey!,
+                  LIST_SIGN_TTL,
+                  styleThumb ? { style: styleThumb } : { thumb: true, watermark: wm }
+                ),
+              cacheVariant
             );
-          } catch {
-            try {
-              posterUrl = await getSignedUrl(
-                m.posterKey,
-                LIST_SIGN_TTL,
-                styleFull
-                  ? { style: styleFull }
-                  : wm
-                    ? { watermark: true }
-                    : undefined
-              );
-            } catch (err) {
-              console.warn('gallery poster sign failed:', m.posterKey, err);
-            }
+          } catch (err) {
+            console.warn('gallery poster sign failed:', m.posterKey, err);
+            posterUrl = null;
           }
         }
 
         if (isImage) {
           try {
-            // 列表禁止回退到原图 url，避免网格拉数 MB 原片
-            thumbUrl = await getSignedUrl(
-              m.key,
+            thumbUrl = await getOrSignCached(
+              m.id,
+              'thumb',
               LIST_SIGN_TTL,
-              styleThumb
-                ? { style: styleThumb }
-                : { thumb: true, watermark: wm }
+              () =>
+                getSignedUrl(
+                  m.key,
+                  LIST_SIGN_TTL,
+                  styleThumb ? { style: styleThumb } : { thumb: true, watermark: wm }
+                ),
+              cacheVariant
             );
           } catch (err) {
             console.warn('gallery image thumb failed:', m.key, err);
             thumbUrl = null;
           }
         } else if (isVideo) {
-          if (posterUrl) {
-            thumbUrl = posterUrl;
-          } else {
-            thumbUrl = null;
-          }
+          thumbUrl = posterUrl;
         }
 
         return {
@@ -148,10 +136,14 @@ export async function GET(req: NextRequest) {
           duration: m.duration,
           takenAt: m.takenAt,
           createdAt: m.createdAt,
-          url,
+          // 列表不签原图；灯箱按需 /api/sign
+          url: '',
           thumbUrl,
           posterUrl,
-          kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as 'image' | 'video' | 'other',
+          kind: (isVideo ? 'video' : isImage ? 'image' : 'other') as
+            | 'image'
+            | 'video'
+            | 'other',
         };
       } catch (err) {
         console.error('gallery sign failed:', m.key, err);
@@ -163,24 +155,32 @@ export async function GET(req: NextRequest) {
     const images = valid.filter((x) => x.kind === 'image');
     const videos = valid.filter((x) => x.kind === 'video');
 
-    // 主站打开图库记访客（失败不影响主流程；60s 同 IP 去重；不记签名接口）
-    void recordVisit({
-      req,
-      path: '/',
-      kind: 'page',
-    });
+    const hasMore = page * pageSize < total;
+    const nextPage = hasMore ? page + 1 : null;
+
+    if (page === 1) {
+      void recordVisit({
+        req,
+        path: '/',
+        kind: 'page',
+      });
+    }
 
     return NextResponse.json(
       {
         images,
         videos,
-        total: imageCount + videoCount,
+        items: valid,
+        total,
         imageCount,
         videoCount,
+        page,
+        pageSize,
+        hasMore,
+        nextPage,
       },
       {
         headers: {
-          // 短缓存，减轻 20 人同时刷接口
           'Cache-Control': 'public, max-age=30, stale-while-revalidate=60',
         },
       }

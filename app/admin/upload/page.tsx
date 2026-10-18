@@ -14,11 +14,14 @@ import {
   CLIENT_POSTER_TIMEOUT_MS,
   MEDIA_SAVE_TIMEOUT_MS,
   PRESIGN_TIMEOUT_MS,
+  MULTIPART_THRESHOLD,
   type UploadPhase,
   assertCosOriginPutUrl,
   fetchWithTimeout,
   putTimeoutMs,
   readApiError,
+  readMultipartResume,
+  uploadFileMultipart,
   uploadPhaseLabel,
   xhrPutFile,
 } from '@/lib/upload-client';
@@ -31,8 +34,10 @@ interface UploadItem {
   title: string;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
-  /** 上传中三阶段：获取预签名 / PUT / 入库 */
+  /** 上传中阶段：预签名 / PUT / 分片 / 入库 */
   phase?: UploadPhase;
+  /** 分片断点提示 */
+  resumeHint?: string;
   error?: string;
   key?: string;
   /** 数据库 Media.id（入库成功后） */
@@ -139,43 +144,85 @@ export default function UploadPage() {
         resolveUploadContentType(snapshot.file.name, snapshot.file.type);
 
       try {
-        // —— 1. 获取预签名 ——
-        updateItem(queueId, { phase: 'presign', progress: 0 });
-        const presignRes = await fetchWithTimeout(
-          '/api/upload/presign',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              filename: snapshot.file.name,
-              contentType,
-              size: snapshot.file.size,
-            }),
-          },
-          PRESIGN_TIMEOUT_MS,
-          '获取预签名超时，请重试'
-        );
+        const useMultipart = snapshot.file.size > MULTIPART_THRESHOLD;
+        let key: string;
+        let putType = contentType;
 
-        if (!presignRes.ok) {
-          throw new Error(await readApiError(presignRes, '获取预签名失败'));
+        if (useMultipart) {
+          // —— 分片上传（>100MB，原字节无损）——
+          const resume = readMultipartResume(snapshot.file.name, snapshot.file.size);
+          if (resume?.parts?.length) {
+            updateItem(queueId, {
+              phase: 'multipart',
+              resumeHint: `检测到断点，已完成 ${resume.parts.length} 片，继续上传…`,
+            });
+          } else {
+            updateItem(queueId, {
+              phase: 'multipart',
+              progress: 0,
+              resumeHint: '大文件分片上传中，中断后可重试续传',
+            });
+          }
+
+          const result = await uploadFileMultipart(
+            snapshot.file,
+            putType,
+            snapshot.file.name,
+            {
+              resumeKey: resume?.key,
+              resumeUploadId: resume?.uploadId,
+              resumeParts: resume?.parts,
+              onProgress: (progress, detail) => {
+                updateItem(queueId, {
+                  progress,
+                  phase: 'multipart',
+                  status: 'uploading',
+                  resumeHint: `分片 ${detail.partNumber}/${detail.partCount}`,
+                });
+              },
+            }
+          );
+          key = result.key;
+        } else {
+          // —— 1. 获取预签名 ——
+          updateItem(queueId, { phase: 'presign', progress: 0, resumeHint: undefined });
+          const presignRes = await fetchWithTimeout(
+            '/api/upload/presign',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filename: snapshot.file.name,
+                contentType,
+                size: snapshot.file.size,
+              }),
+            },
+            PRESIGN_TIMEOUT_MS,
+            '获取预签名超时，请重试'
+          );
+
+          if (!presignRes.ok) {
+            throw new Error(await readApiError(presignRes, '获取预签名失败'));
+          }
+
+          const { url, key: k, contentType: signedType } = await presignRes.json();
+          if (typeof url !== 'string' || typeof k !== 'string') {
+            throw new Error('预签名响应无效');
+          }
+          assertCosOriginPutUrl(url);
+          key = k;
+          putType = signedType || contentType;
+
+          // —— 2. PUT 直传 COS（按体积 5–10 分钟超时）——
+          updateItem(queueId, { phase: 'put', progress: 0 });
+          const timeoutMs = putTimeoutMs(snapshot.file.size);
+          await xhrPutFile(url, snapshot.file, putType, timeoutMs, (progress) => {
+            updateItem(queueId, { progress, phase: 'put', status: 'uploading' });
+          });
         }
-
-        const { url, key, contentType: signedType } = await presignRes.json();
-        if (typeof url !== 'string' || typeof key !== 'string') {
-          throw new Error('预签名响应无效');
-        }
-        assertCosOriginPutUrl(url);
-        const putType = signedType || contentType;
-
-        // —— 2. PUT 直传 COS（按体积 5–10 分钟超时）——
-        updateItem(queueId, { phase: 'put', progress: 0 });
-        const timeoutMs = putTimeoutMs(snapshot.file.size);
-        await xhrPutFile(url, snapshot.file, putType, timeoutMs, (progress) => {
-          updateItem(queueId, { progress, phase: 'put', status: 'uploading' });
-        });
 
         // —— 3. 入库（可选客户端海报；失败不堵死）——
-        updateItem(queueId, { phase: 'saving', progress: 100 });
+        updateItem(queueId, { phase: 'saving', progress: 100, resumeHint: undefined });
 
         const latest = itemsRef.current.find((i) => i.id === queueId);
         const title = (latest?.title ?? snapshot.title).trim();
@@ -413,11 +460,11 @@ export default function UploadPage() {
       {largeHint && (
         <div className="rounded-2xl glass p-4 text-sm border border-amber-300/60 bg-amber-50/50 space-y-1">
           <p>
-            检测到超过 100MB 的文件：请<strong>保持屏幕常亮</strong>，上传完成前勿切换到微信或锁屏。
-            建议使用 <strong>Safari</strong> 上传。
+            检测到超过 100MB 的文件：将自动使用<strong>分片上传</strong>（原字节无损）。
+            请<strong>保持屏幕常亮</strong>，并建议使用 <strong>Safari</strong> 上传（避免微信内置浏览器中断）。
           </p>
           <p style={{ color: 'var(--text-muted)' }}>
-            （当前为单次 PUT 无损直传；更大文件后续可加 multipart，仍按原字节上传。）
+            中断后点「重试」可从已完成分片继续（断点续传）。小于 100MB 仍走单次 PUT。
           </p>
         </div>
       )}
@@ -555,7 +602,7 @@ export default function UploadPage() {
                             }`}
                             style={{
                               width:
-                                item.phase === 'put'
+                                item.phase === 'put' || item.phase === 'multipart'
                                   ? `${item.progress}%`
                                   : item.phase === 'saving'
                                     ? '100%'
@@ -566,6 +613,9 @@ export default function UploadPage() {
                         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                           {phaseText}
                         </p>
+                        {item.resumeHint && (
+                          <p className="text-[11px] text-amber-700">{item.resumeHint}</p>
+                        )}
                       </div>
                     )}
                     {item.status === 'success' && (

@@ -11,7 +11,8 @@ import { MediaCover } from '@/components/media-cover';
 
 export type LightboxItem = {
   id: string;
-  url: string;
+  /** 原图/原视频签名；列表可为空，打开时按需 /api/sign */
+  url?: string | null;
   key?: string;
   filename: string;
   title?: string | null;
@@ -70,13 +71,19 @@ export function Lightbox({
   onDelete,
   variant = 'ios',
 }: Props) {
-  const current = items[index];
+  const [originById, setOriginById] = useState<Record<string, string>>({});
+  const resolvedItems = items.map((item) => ({
+    ...item,
+    url: item.url || originById[item.id] || '',
+  }));
+  const current = resolvedItems[index];
   const [entered, setEntered] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [imageScale, setImageScale] = useState(1);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [videoPlaying, setVideoPlaying] = useState(false);
+  const [originLoading, setOriginLoading] = useState(false);
   const filmstripRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hideTimerRef = useRef<number | null>(null);
@@ -134,6 +141,37 @@ export function Lightbox({
     setVideoPlaying(false);
     clearHideTimer();
   }, [index, clearHideTimer]);
+
+  /** 列表未带原图签名时，打开灯箱按需签（key 须 media/） */
+  useEffect(() => {
+    const item = items[index];
+    if (!item) return;
+    if (item.url) return;
+    if (originById[item.id]) return;
+    const key = item.key;
+    if (!key || !key.startsWith('media/')) return;
+
+    let cancelled = false;
+    setOriginLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/sign?key=${encodeURIComponent(key)}&expires=1800`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || typeof data.url !== 'string') return;
+        if (!cancelled) {
+          setOriginById((prev) => ({ ...prev, [item.id]: data.url }));
+        }
+      } catch (err) {
+        console.warn('lightbox origin sign failed:', key, err);
+      } finally {
+        if (!cancelled) setOriginLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [index, items, originById]);
 
   /** 关闭灯箱：停播并卸掉 src，避免后台继续拉流 */
   useEffect(() => {
@@ -196,7 +234,7 @@ export function Lightbox({
   }
 
   async function handleShare() {
-    const url = current.url;
+    const url = current?.url || '';
     if (navigator.share) {
       try {
         await navigator.share({ title, url });
@@ -216,7 +254,7 @@ export function Lightbox({
     return (
       <div className="photos-viewer-fs fixed inset-0 z-50 flex bg-white/90 backdrop-blur-md">
         <PhotoViewerCarousel
-          items={items}
+          items={resolvedItems}
           index={index}
           onChange={onChange}
           imageScale={1}
@@ -246,7 +284,7 @@ export function Lightbox({
       {/* 媒体层：占满全屏 */}
       <div className="photos-viewer-media absolute inset-0 z-0">
         <PhotoViewerCarousel
-          items={items}
+          items={resolvedItems}
           index={index}
           onChange={onChange}
           imageScale={imageScale}
@@ -255,6 +293,11 @@ export function Lightbox({
           videoRef={videoRef}
           onMediaTap={toggleChrome}
         />
+        {originLoading && !current.url && (
+          <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none">
+            <span className="text-sm text-black/50">加载原图…</span>
+          </div>
+        )}
       </div>
 
       {/* 返回键：始终可见（白底圆形左箭头），不随 chrome 隐藏 */}
@@ -379,7 +422,7 @@ export function Lightbox({
             ref={filmstripRef}
             className="photos-filmstrip flex gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar"
           >
-            {items.map((item, i) => {
+            {resolvedItems.map((item, i) => {
               const itemVideo = item.mimeType.startsWith('video/');
               const thumb = item.posterUrl || item.thumbUrl || (itemVideo ? null : item.url);
               const active = i === index;

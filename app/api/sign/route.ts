@@ -3,17 +3,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSignedUrl } from '@/lib/cos';
 import { prisma } from '@/lib/prisma';
+import { getCosConfig } from '@/lib/settings';
 
 /**
- * 强制签名访问接口（管理端）
- * 所有图片/视频展示必须走这里，禁止前端直接拼 COS 链接
- *
+ * 签名访问接口
  * Query:
- *   key      - COS 对象键（必填）
- *   expires  - 有效期秒数，默认 1800（30分钟），最大 3600
- *   thumb    - 1/true 时返回数据万象缩略图（列表用）；灯箱请勿传
+ *   key      - COS 对象键（必填，须 media/ 且库中存在）
+ *   expires  - 有效期秒数，默认 1800，最大 3600
+ *   thumb    - 1/true 缩略（管理端列表）
  *
- * 注意：本接口不加展示水印（管理端原图下载）；公开图库水印由 /api/gallery 控制。
+ * 公开图库灯箱可无登录按需签原图（与 /api/gallery 一致，存在即签）。
+ * 未登录时应用图库水印/全图样式；管理端登录不加展示水印。
  */
 export async function GET(req: NextRequest) {
   try {
@@ -36,7 +36,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: '媒体不存在' }, { status: 404 });
     }
 
-    if (!session) {
+    // 库中存在即可签（公开图库灯箱）；缩略签名建议登录（管理端）
+    const wantThumb =
+      thumbParam === '1' || thumbParam === 'true' || thumbParam === 'yes';
+    if (wantThumb && !session) {
       return NextResponse.json({ error: '未登录' }, { status: 401 });
     }
 
@@ -48,15 +51,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const wantThumb =
-      thumbParam === '1' || thumbParam === 'true' || thumbParam === 'yes';
     const isImage = media.mimeType.startsWith('image/');
     const isVideo = media.mimeType.startsWith('video/');
 
-    const url = await getSignedUrl(key, expires, {
-      thumb: wantThumb && isImage,
-      snapshot: wantThumb && isVideo,
-    });
+    let signOpts: Parameters<typeof getSignedUrl>[2];
+    if (wantThumb) {
+      signOpts = {
+        thumb: isImage,
+        snapshot: isVideo,
+      };
+    } else if (!session && isImage) {
+      const cfg = await getCosConfig();
+      const styleFull = (cfg.imageStyleFull || '').trim();
+      const wm = Boolean(cfg.watermarkEnabled);
+      signOpts = styleFull
+        ? { style: styleFull }
+        : wm
+          ? { watermark: true }
+          : undefined;
+    } else {
+      signOpts = undefined;
+    }
+
+    const url = await getSignedUrl(key, expires, signOpts);
 
     return NextResponse.json({
       url,
