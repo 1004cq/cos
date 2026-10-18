@@ -3,7 +3,7 @@ import './globals.css';
 import { SessionProvider } from '@/components/session-provider';
 
 export const metadata: Metadata = {
-  title: '陈庆.我爱你',
+  title: '相册',
   description: '个人无损照片视频相册',
 };
 

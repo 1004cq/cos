@@ -34,7 +34,7 @@ export default function AdminSettingsPage() {
   const [cdnDomain, setCdnDomain] = useState('');
   const [thumbWidth, setThumbWidth] = useState(480);
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
-  const [watermarkText, setWatermarkText] = useState('陈庆.我爱你');
+  const [watermarkText, setWatermarkText] = useState('Gallery');
   const [imageStyleThumb, setImageStyleThumb] = useState('');
   const [imageStyleFull, setImageStyleFull] = useState('');
   const [testResult, setTestResult] = useState<TestResult | null>(null);
@@ -87,7 +87,7 @@ export default function AdminSettingsPage() {
       setCdnDomain(cos.cdnDomain || '');
       setThumbWidth(Number(cos.thumbWidth) || 480);
       setWatermarkEnabled(Boolean(cos.watermarkEnabled));
-      setWatermarkText(cos.watermarkText || '陈庆.我爱你');
+      setWatermarkText(cos.watermarkText || 'Gallery');
       setImageStyleThumb(cos.imageStyleThumb || '');
       setImageStyleFull(cos.imageStyleFull || '');
       setSecretId('');
@@ -151,7 +151,7 @@ export default function AdminSettingsPage() {
       cdnDomain: cdn,
       thumbWidth: Number(thumbWidth) || 480,
       watermarkEnabled,
-      watermarkText: watermarkText.trim() || '陈庆.我爱你',
+      watermarkText: watermarkText.trim() || 'Gallery',
       imageStyleThumb: imageStyleThumb.trim(),
       imageStyleFull: imageStyleFull.trim(),
     };
@@ -624,7 +624,7 @@ export default function AdminSettingsPage() {
         ) : (
           <>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              数据库配置优先。Bucket 需含 APPID（如 cq-1327876314）。香港桶 Region 填 ap-hongkong。
+              数据库配置优先。Bucket 需含 APPID（如 your-bucket-1250000000）。香港桶 Region 填 ap-hongkong。
             </p>
         <div>
           <label className="block text-sm mb-1.5 font-medium">SecretId</label>
@@ -666,7 +666,7 @@ export default function AdminSettingsPage() {
             className="input-glass font-mono text-sm"
             value={bucket}
             onChange={(e) => setBucket(e.target.value)}
-            placeholder="cq-1327876314"
+            placeholder="your-bucket-1250000000"
             required
           />
         </div>
@@ -725,8 +725,8 @@ export default function AdminSettingsPage() {
           />
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
             网站可用中文域；COS 文件走默认域名（如
-            cq-1327876314.cos.ap-hongkong.myqcloud.com）。CDN
-            仅英文且已绑到本桶时才填，切勿填「陈庆.我爱你」。
+            your-bucket-1250000000.cos.ap-hongkong.myqcloud.com）。CDN
+            仅英文且已绑到本桶时才填，切勿填中文站域名。
           </p>
           {(cdnLooksChinese || meta?.cdnIgnoredUnsafe) && (
             <p className="text-xs mt-2 text-amber-700">
@@ -766,7 +766,7 @@ export default function AdminSettingsPage() {
             maxLength={40}
             disabled={!watermarkEnabled}
             onChange={(e) => setWatermarkText(e.target.value)}
-            placeholder="陈庆.我爱你"
+            placeholder="Gallery"
           />
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             开启后，图库/分享的缩略图与图片详情预览经数据万象叠加水印（参数签入签名）。

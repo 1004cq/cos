@@ -76,7 +76,7 @@ export default function AlbumsPage() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 glass-header px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">陈庆.我爱你</h1>
+          <h1 className="text-lg font-semibold tracking-tight">相册</h1>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             相册 · {albums.length}
           </p>

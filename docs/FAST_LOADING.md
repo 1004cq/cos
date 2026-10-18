@@ -1,9 +1,9 @@
 # 图片与视频「秒加载」方案
 
-> 适用项目：陈庆.我爱你 / cos 私人图库  
+> 适用项目：本仓库图库  
 > 存储：腾讯云 COS 私有桶 + 预签名  
-> 当前示例桶：`cq-1327876314`，地域：`ap-hongkong`  
-> 网站域名：中文域（可只托管网页，**不必**绑定 COS）
+> 示例桶：`your-bucket-1250000000`，地域：`ap-hongkong`  
+> 网站域名可只托管网页（**不必**绑定 COS）；媒体 CDN 请用英文域
 
 本文依据腾讯云 **对象存储 COS**、**数据万象 CI**、**内容分发网络 CDN** 的官方能力，说明如何让图库列表与详情在观感上接近「秒开」，同时 **原片仍可无损保存在 COS**。
 
@@ -233,7 +233,7 @@ Media.posterKey = "media/2026/08/11/xxx-poster.jpg"
 ### 5.2 步骤摘要
 
 1. 准备英文域名并完成解析（CNAME 到 CDN）  
-2. CDN 添加域名，源站类型 **COS**，选择 `cq-1327876314` 所在地域桶  
+2. CDN 添加域名，源站类型 **COS**，选择你的桶所在地域  
 3. 私有桶：COS 授权 CDN，CDN 开启 **私有存储桶访问**  
 4. HTTPS 证书配置  
 5. 缓存：静态图片/封面长缓存；按需配置视频  
@@ -273,7 +273,7 @@ Media.posterKey = "media/2026/08/11/xxx-poster.jpg"
 ### 6.3 配置
 
 ```env
-COS_BUCKET=cq-1327876314
+COS_BUCKET=your-bucket-1250000000
 COS_REGION=ap-hongkong
 COS_SECRET_ID=...
 COS_SECRET_KEY=...
@@ -282,7 +282,7 @@ COS_CDN_DOMAIN=
 COS_THUMB_WIDTH=480
 # 可选：展示链文字水印（无法防录屏）
 COS_WATERMARK_ENABLED=false
-COS_WATERMARK_TEXT=陈庆.我爱你
+COS_WATERMARK_TEXT=Gallery
 ```
 
 后台「CDN / 自定义域名」：**可清空且保存后不得被 env 错误回填中文域**。

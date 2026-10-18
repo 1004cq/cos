@@ -43,7 +43,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md p-8 rounded-3xl glass-strong">
-        <h1 className="text-2xl font-semibold mb-1 text-center tracking-tight">陈庆.我爱你</h1>
+        <h1 className="text-2xl font-semibold mb-1 text-center tracking-tight">相册</h1>
         <p className="text-center mb-8 text-sm" style={{ color: 'var(--text-muted)' }}>
           管理员登录
         </p>
