@@ -6,11 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { getStorageProvider, headObjectSize } from '@/lib/storage';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
-<<<<<<< HEAD
 import { generateAndStoreImagePoster } from '@/lib/image-poster-server';
-=======
 import { consumeUploadKey, hasUploadKey } from '@/lib/upload-key-cache';
->>>>>>> origin/main
 import { generateAndStoreVideoPoster } from '@/lib/video-poster-server';
 
 export async function POST(req: NextRequest) {
