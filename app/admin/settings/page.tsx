@@ -2,51 +2,16 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { CheckCircle2, XCircle, Loader2, Save, FlaskConical, KeyRound } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-type CosPublicConfig = {
-  secretId: string;
-  secretIdSet: boolean;
-  secretKeySet: boolean;
-  bucket: string;
-  region: string;
-  cdnDomain: string;
-  cdnDomainEffective?: string;
-  cdnIgnoredUnsafe?: boolean;
-  thumbWidth: number;
-  watermarkEnabled?: boolean;
-  watermarkText?: string;
-  imageStyleThumb?: string;
-  imageStyleFull?: string;
-  source: 'database' | 'env' | 'mixed';
-  ready: boolean;
-};
-
-type TestResult = { ok: boolean; error?: string; bucket?: string; region?: string };
-
-const REGION_OPTIONS = [
-  'ap-hongkong',
-  'ap-guangzhou',
-  'ap-shanghai',
-  'ap-nanjing',
-  'ap-beijing',
-  'ap-chengdu',
-  'ap-chongqing',
-  'ap-singapore',
-  'ap-tokyo',
-  'na-siliconvalley',
-] as const;
-
-const SOURCE_LABEL: Record<CosPublicConfig['source'], string> = {
-  env: '环境变量',
-  database: '数据库',
-  mixed: '混合（DB + env）',
-};
-
-function hasNonAscii(s: string) {
-  return /[^\x00-\x7F]/.test(s);
-}
+import {
+  SOURCE_LABEL,
+  hasNonAscii,
+  type CosPublicConfig,
+  type TestResult,
+} from '@/components/admin/settings-types';
+import { SettingsAccountForm } from '@/components/admin/settings-account-form';
+import { SettingsCosForm } from '@/components/admin/settings-cos-form';
 
 export default function AdminSettingsPage() {
   const { data: session } = useSession();
@@ -99,7 +64,6 @@ export default function AdminSettingsPage() {
       });
       setBucket(data.bucket || '');
       setRegion(data.region || 'ap-hongkong');
-      // 展示库里的值；若含中文会提示清空
       setCdnDomain(data.cdnDomain || '');
       setThumbWidth(Number(data.thumbWidth) || 480);
       setWatermarkEnabled(Boolean(data.watermarkEnabled));
@@ -130,7 +94,6 @@ export default function AdminSettingsPage() {
     const payload: Record<string, unknown> = {
       bucket: bucket.trim(),
       region: region.trim(),
-      // 始终提交（含空字符串），以便清空数据库中的旧 CDN
       cdnDomain: cdnDomain.trim(),
       thumbWidth: Number(thumbWidth) || 480,
       watermarkEnabled,
@@ -150,13 +113,8 @@ export default function AdminSettingsPage() {
     setError('');
     setSuccess('');
     setTestResult(null);
-
     try {
-      if (!bucket.trim() || !region.trim()) {
-        throw new Error('Bucket 与 Region 为必填');
-      }
-
-      // 中文站域名不能当 COS CDN：保存前自动清空并提示
+      if (!bucket.trim() || !region.trim()) throw new Error('Bucket 与 Region 为必填');
       let cdn = cdnDomain.trim();
       let clearedChinese = false;
       if (hasNonAscii(cdn) || /xn--/i.test(cdn)) {
@@ -164,7 +122,6 @@ export default function AdminSettingsPage() {
         setCdnDomain('');
         clearedChinese = true;
       }
-
       const res = await fetch('/api/admin/settings/cos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -172,7 +129,6 @@ export default function AdminSettingsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '保存失败');
-
       setMeta({
         secretId: data.secretId || '',
         secretIdSet: Boolean(data.secretIdSet),
@@ -191,7 +147,6 @@ export default function AdminSettingsPage() {
       setImageStyleFull(data.imageStyleFull || '');
       setSecretId('');
       setSecretKey('');
-
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
         if (data.test.ok) {
@@ -225,21 +180,21 @@ export default function AdminSettingsPage() {
     setError('');
     setSuccess('');
     setTestResult(null);
-
     try {
-      const payload = buildPayload();
       const res = await fetch('/api/admin/settings/cos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildPayload()),
       });
       const data = (await res.json().catch(() => ({}))) as TestResult & { error?: string };
-      setTestResult({ ok: Boolean(data.ok), error: data.error, bucket: data.bucket, region: data.region });
-      if (data.ok) {
-        setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
-      } else {
-        setError(data.error || '连通性测试失败');
-      }
+      setTestResult({
+        ok: Boolean(data.ok),
+        error: data.error,
+        bucket: data.bucket,
+        region: data.region,
+      });
+      if (data.ok) setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
+      else setError(data.error || '连通性测试失败');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '测试失败');
     } finally {
@@ -252,7 +207,6 @@ export default function AdminSettingsPage() {
     e.preventDefault();
     setAccountError('');
     setAccountSuccess('');
-
     if (!currentPassword) {
       setAccountError('请输入当前密码');
       return;
@@ -265,16 +219,13 @@ export default function AdminSettingsPage() {
       setAccountError('两次输入的新密码不一致');
       return;
     }
-
     const payload: Record<string, string> = { currentPassword };
     if (newPassword) payload.newPassword = newPassword;
     if (accountUsername.trim()) payload.newUsername = accountUsername.trim();
-
     if (!payload.newPassword && !payload.newUsername) {
       setAccountError('请填写新密码或修改用户名');
       return;
     }
-
     setBusy('account');
     try {
       const res = await fetch('/api/admin/account', {
@@ -284,11 +235,9 @@ export default function AdminSettingsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '更新失败');
-
       setCurrentPassword('');
       setNewPassword('');
       setNewPassword2('');
-
       if (data.requireReLogin) {
         setAccountSuccess('已更新，请使用新凭据重新登录');
         setTimeout(() => {
@@ -338,92 +287,20 @@ export default function AdminSettingsPage() {
         </div>
       </div>
 
-      <form
-        onSubmit={handleAccountSave}
-        className="rounded-3xl glass p-6 space-y-5"
-        autoComplete="off"
-      >
-        <div className="flex items-center gap-2">
-          <KeyRound className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold">管理员账号</h2>
-        </div>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          修改需验证当前密码；新密码至少 12 位，仅存 bcrypt 哈希。改密或改用户名后需重新登录。
-        </p>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">用户名</label>
-          <input
-            className="input-glass text-sm"
-            type="text"
-            name="account-username"
-            autoComplete="username"
-            value={accountUsername}
-            onChange={(e) => setAccountUsername(e.target.value)}
-            maxLength={32}
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">当前密码</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="current-password"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">新密码（可选）</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="new-password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="至少 12 位，留空则不改密码"
-          />
-        </div>
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">确认新密码</label>
-          <input
-            className="input-glass text-sm"
-            type="password"
-            name="new-password2"
-            autoComplete="new-password"
-            value={newPassword2}
-            onChange={(e) => setNewPassword2(e.target.value)}
-            placeholder="再次输入新密码"
-            disabled={!newPassword}
-          />
-        </div>
-        {accountError && (
-          <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
-            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{accountError}</span>
-          </div>
-        )}
-        {accountSuccess && !accountError && (
-          <div className="rounded-2xl glass px-4 py-3 text-sm text-green-700 flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{accountSuccess}</span>
-          </div>
-        )}
-        <button
-          type="submit"
-          disabled={busy === 'account'}
-          className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-        >
-          {busy === 'account' ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
-          保存账号
-        </button>
-      </form>
+      <SettingsAccountForm
+        username={accountUsername}
+        currentPassword={currentPassword}
+        newPassword={newPassword}
+        newPassword2={newPassword2}
+        busy={busy === 'account'}
+        error={accountError}
+        success={accountSuccess}
+        onUsername={setAccountUsername}
+        onCurrentPassword={setCurrentPassword}
+        onNewPassword={setNewPassword}
+        onNewPassword2={setNewPassword2}
+        onSubmit={(e) => void handleAccountSave(e)}
+      />
 
       {error && (
         <div className="rounded-2xl glass px-4 py-3 text-sm text-red-600 flex items-start gap-2">
@@ -459,238 +336,33 @@ export default function AdminSettingsPage() {
         </div>
       )}
 
-      <form
-        className="rounded-3xl glass p-6 space-y-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void handleSave(false);
-        }}
-        autoComplete="off"
-      >
-        <h2 className="text-lg font-semibold">腾讯云 COS</h2>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          数据库配置优先。Bucket 需含 APPID（如 cq-1327876314）。香港桶 Region 填 ap-hongkong。
-        </p>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">SecretId</label>
-          <input
-            className="input-glass font-mono text-sm"
-            type="text"
-            name="cos-secret-id"
-            autoComplete="off"
-            spellCheck={false}
-            value={secretId}
-            onChange={(e) => setSecretId(e.target.value)}
-            placeholder={
-              meta?.secretIdSet
-                ? `已配置 ${meta.secretId || '****'}，留空不修改`
-                : 'AKIDxxxxxxxx'
-            }
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">SecretKey</label>
-          <input
-            className="input-glass font-mono text-sm"
-            type="password"
-            name="cos-secret-key"
-            autoComplete="new-password"
-            value={secretKey}
-            onChange={(e) => setSecretKey(e.target.value)}
-            placeholder={meta?.secretKeySet ? '已配置则留空不修改' : '请输入 SecretKey'}
-          />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            密钥仅保存在服务端（加密），不会回填明文，也不会写入浏览器本地存储
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">Bucket</label>
-          <input
-            className="input-glass font-mono text-sm"
-            value={bucket}
-            onChange={(e) => setBucket(e.target.value)}
-            placeholder="cq-1327876314"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">Region</label>
-          <input
-            className="input-glass font-mono text-sm"
-            list="cos-region-list"
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            placeholder="ap-hongkong"
-            required
-          />
-          <datalist id="cos-region-list">
-            {REGION_OPTIONS.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            本站桶在香港：请填 ap-hongkong
-          </p>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {REGION_OPTIONS.slice(0, 6).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRegion(r)}
-                className={cn(
-                  'text-xs px-2 py-1 rounded-lg transition',
-                  region === r ? 'bg-white/80 text-blue-600' : 'btn-ghost !py-1 !px-2'
-                )}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <label className="block text-sm font-medium">CDN / 自定义域名</label>
-            <button
-              type="button"
-              className="text-xs text-blue-600 hover:underline"
-              onClick={() => setCdnDomain('')}
-            >
-              清空
-            </button>
-          </div>
-          <input
-            className="input-glass text-sm"
-            value={cdnDomain}
-            onChange={(e) => setCdnDomain(e.target.value)}
-            placeholder="可留空（推荐）"
-          />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            网站可用中文域；COS 文件走默认域名（如
-            cq-1327876314.cos.ap-hongkong.myqcloud.com）。CDN
-            仅英文且已绑到本桶时才填，切勿填「陈庆.我爱你」。
-          </p>
-          {(cdnLooksChinese || meta?.cdnIgnoredUnsafe) && (
-            <p className="text-xs mt-2 text-amber-700">
-              中文站域名不能当 COS CDN（运行时会忽略）。请点「清空」后保存。
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1.5 font-medium">缩略图宽度</label>
-          <input
-            className="input-glass text-sm"
-            type="number"
-            min={120}
-            max={1200}
-            value={thumbWidth}
-            onChange={(e) => setThumbWidth(Number(e.target.value) || 480)}
-          />
-          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
-            120–1200，默认 480（数据万象列表缩略图）
-          </p>
-        </div>
-
-        <div className="space-y-3 rounded-2xl glass p-4">
-          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={watermarkEnabled}
-              onChange={(e) => setWatermarkEnabled(e.target.checked)}
-              className="rounded border-black/20"
-            />
-            展示链文字水印（可选）
-          </label>
-          <input
-            className="input-glass text-sm"
-            value={watermarkText}
-            maxLength={40}
-            disabled={!watermarkEnabled}
-            onChange={(e) => setWatermarkText(e.target.value)}
-            placeholder="陈庆.我爱你"
-          />
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            开启后，图库/分享的缩略图与图片详情预览经数据万象叠加水印（参数签入签名）。
-            管理端 /api/sign 原图下载不加。水印无法防录屏或截图。
-          </p>
-        </div>
-
-        <div className="space-y-3 rounded-2xl glass p-4">
-          <p className="text-sm font-medium">图片样式名（原图保护）</p>
-          <p className="text-xs text-amber-800 bg-amber-50/80 rounded-xl px-3 py-2">
-            若图片全部 403「please use style」，请到腾讯云数据万象关闭「原图保护」，
-            或在控制台创建样式后把样式名填在下面（例如 thumb / full）。
-          </p>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-              列表缩略样式名
-            </label>
-            <input
-              className="input-glass text-sm"
-              value={imageStyleThumb}
-              onChange={(e) => setImageStyleThumb(e.target.value)}
-              placeholder="如 thumb（可留空）"
-            />
-          </div>
-          <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
-              详情/全图样式名
-            </label>
-            <input
-              className="input-glass text-sm"
-              value={imageStyleFull}
-              onChange={(e) => setImageStyleFull(e.target.value)}
-              placeholder="如 full（可留空）"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-2">
-          <button
-            type="submit"
-            disabled={Boolean(busy)}
-            className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'save' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            保存
-          </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void handleSave(true)}
-            className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'saveTest' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FlaskConical className="w-4 h-4" />
-            )}
-            保存并测试
-          </button>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void handleTestOnly()}
-            className="btn-ghost text-sm inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {busy === 'test' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FlaskConical className="w-4 h-4" />
-            )}
-            仅测试
-          </button>
-        </div>
-      </form>
+      <SettingsCosForm
+        meta={meta}
+        busy={busy}
+        secretId={secretId}
+        secretKey={secretKey}
+        bucket={bucket}
+        region={region}
+        cdnDomain={cdnDomain}
+        thumbWidth={thumbWidth}
+        watermarkEnabled={watermarkEnabled}
+        watermarkText={watermarkText}
+        imageStyleThumb={imageStyleThumb}
+        imageStyleFull={imageStyleFull}
+        cdnLooksChinese={cdnLooksChinese}
+        onSecretId={setSecretId}
+        onSecretKey={setSecretKey}
+        onBucket={setBucket}
+        onRegion={setRegion}
+        onCdnDomain={setCdnDomain}
+        onThumbWidth={setThumbWidth}
+        onWatermarkEnabled={setWatermarkEnabled}
+        onWatermarkText={setWatermarkText}
+        onImageStyleThumb={setImageStyleThumb}
+        onImageStyleFull={setImageStyleFull}
+        onSave={(andTest) => void handleSave(andTest)}
+        onTestOnly={() => void handleTestOnly()}
+      />
     </div>
   );
 }

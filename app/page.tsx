@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Search, X } from 'lucide-react';
 import { Lightbox } from '@/components/lightbox';
@@ -22,6 +22,8 @@ import {
   yearKey,
 } from '@/lib/gallery-format';
 import { cn } from '@/lib/utils';
+
+const PAGE_SIZE = 40;
 
 function buildSections(items: GalleryItem[], groupBy: 'day' | 'month' | 'year'): DaySection[] {
   const sorted = [...items].sort(
@@ -76,12 +78,26 @@ function buildSections(items: GalleryItem[], groupBy: 'day' | 'month' | 'year'):
     }));
 }
 
+function mergeGalleryPage(data: {
+  images?: GalleryItem[];
+  videos?: GalleryItem[];
+  items?: GalleryItem[];
+}): GalleryItem[] {
+  if (Array.isArray(data.items) && data.items.length) {
+    return data.items;
+  }
+  return [...(data.images || []), ...(data.videos || [])];
+}
+
 export default function HomePage() {
   const { status } = useSession();
   const isAdmin = status === 'authenticated';
 
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextPage, setNextPage] = useState<number | null>(2);
   const [error, setError] = useState('');
   const [density, setDensity] = useState<GalleryDensity>('all');
   const [headerDateKey, setHeaderDateKey] = useState<string | null>(null);
@@ -89,23 +105,37 @@ export default function HomePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const loadMoreLock = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const preset = DENSITY_PRESETS[density];
+
+  const fetchPage = useCallback(async (page: number, append: boolean) => {
+    const res = await fetch(`/api/gallery?page=${page}&pageSize=${PAGE_SIZE}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || '加载失败');
+    const pageItems = mergeGalleryPage(data).sort(
+      (a, b) => itemSortDate(b).getTime() - itemSortDate(a).getTime()
+    );
+    setItems((prev) => {
+      if (!append) return pageItems;
+      const seen = new Set(prev.map((i) => i.id));
+      const merged = [...prev];
+      for (const it of pageItems) {
+        if (!seen.has(it.id)) merged.push(it);
+      }
+      return merged;
+    });
+    setHasMore(Boolean(data.hasMore));
+    setNextPage(typeof data.nextPage === 'number' ? data.nextPage : null);
+  }, []);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       setError('');
       try {
-        const res = await fetch('/api/gallery?pageSize=100');
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '加载失败');
-        const images: GalleryItem[] = data.images || [];
-        const videos: GalleryItem[] = data.videos || [];
-        const merged = [...images, ...videos].sort(
-          (a, b) => itemSortDate(b).getTime() - itemSortDate(a).getTime()
-        );
-        setItems(merged);
+        await fetchPage(1, false);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : '加载失败');
       } finally {
@@ -113,7 +143,37 @@ export default function HomePage() {
       }
     }
     void load();
-  }, []);
+  }, [fetchPage]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || nextPage == null || loadMoreLock.current || loadingMore) return;
+    loadMoreLock.current = true;
+    setLoadingMore(true);
+    setError('');
+    try {
+      await fetchPage(nextPage, true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '加载更多失败');
+    } finally {
+      setLoadingMore(false);
+      loadMoreLock.current = false;
+    }
+  }, [fetchPage, hasMore, nextPage, loadingMore]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          void loadMore();
+        }
+      },
+      { rootMargin: '600px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, loadMore, items.length]);
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -259,6 +319,13 @@ export default function HomePage() {
                   showInlineHeaders={preset.showSectionHeaders}
                   showOverlayHeaders={pinching && columns >= 6 && density === 'all'}
                 />
+                <div ref={sentinelRef} className="h-8" aria-hidden />
+                {loadingMore && (
+                  <p className="text-center py-4 text-sm text-[var(--photos-muted)]">加载更多…</p>
+                )}
+                {!hasMore && items.length > 0 && (
+                  <p className="text-center py-4 text-xs text-[var(--photos-muted)]">已加载全部</p>
+                )}
               </div>
             )}
           </GalleryPinchGrid>

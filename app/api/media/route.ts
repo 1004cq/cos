@@ -6,6 +6,7 @@ import { headObjectSize } from '@/lib/cos';
 import { isAllowedUploadMime, resolveUploadContentType } from '@/lib/media-type';
 import { normalizeMediaTitle } from '@/lib/utils';
 import { generateAndStoreVideoPoster } from '@/lib/video-poster-server';
+import { extractMediaMetadata, mergeMeta } from '@/lib/media-metadata';
 
 export async function POST(req: NextRequest) {
   try {
@@ -66,7 +67,16 @@ export async function POST(req: NextRequest) {
     const storedSize = cosSize != null ? cosSize : clientSize;
     const sizeMismatch = cosSize != null && cosSize !== clientSize;
 
-    // 视频无客户端海报时：服务端 CI 截帧（短超时；失败仍入库，posterKey 为空）
+    // 服务端元数据（失败不影响入库；成功则优先于客户端）
+    let serverMeta = {};
+    try {
+      serverMeta = await extractMediaMetadata(key, mimeType);
+    } catch (err) {
+      console.warn('media metadata extract skipped:', key, err);
+    }
+    const merged = mergeMeta(serverMeta, { width, height, duration, takenAt });
+
+    // 视频无客户端海报时：服务端 CI 截帧（短超时；失败仍入库）
     let posterSource: 'client' | 'ci' | 'skipped' | null = resolvedPosterKey
       ? 'client'
       : null;
@@ -90,11 +100,11 @@ export async function POST(req: NextRequest) {
         title,
         mimeType,
         size: storedSize,
-        width: width || null,
-        height: height || null,
-        duration: duration || null,
+        width: merged.width,
+        height: merged.height,
+        duration: merged.duration,
         albumId: albumId || null,
-        takenAt: takenAt ? new Date(takenAt) : null,
+        takenAt: merged.takenAt,
         tags: tags || [],
         posterKey: resolvedPosterKey,
       },
@@ -106,6 +116,17 @@ export async function POST(req: NextRequest) {
       cosSize,
       sizeMismatch,
       posterSource,
+      metaSource: {
+        width: serverMeta && (serverMeta as { width?: number }).width != null ? 'server' : 'client',
+        height:
+          serverMeta && (serverMeta as { height?: number }).height != null ? 'server' : 'client',
+        duration:
+          serverMeta && (serverMeta as { duration?: number }).duration != null
+            ? 'server'
+            : 'client',
+        takenAt:
+          serverMeta && (serverMeta as { takenAt?: Date }).takenAt != null ? 'server' : 'client',
+      },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : '入库失败';
