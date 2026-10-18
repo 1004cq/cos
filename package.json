@@ -19,6 +19,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1152.0",
     "@prisma/client": "^6.5.0",
     "@use-gesture/react": "^10.3.1",
+    "ali-oss": "^6.23.0",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "cos-nodejs-sdk-v5": "^2.14.6",
@@ -32,6 +33,7 @@
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
+    "@types/ali-oss": "^6.23.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",

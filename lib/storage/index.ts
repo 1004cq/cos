@@ -9,6 +9,7 @@ import { S3StorageProvider } from '@/lib/storage/s3-provider';
 import {
   bindStorageCacheReset,
   getCosConfig,
+  getOssConfig,
   getS3Config,
   getStorageProviderId,
 } from '@/lib/storage/config';
@@ -30,6 +31,8 @@ export type {
 export {
   getCosConfig,
   getCosConfigPublic,
+  getOssConfig,
+  getOssConfigPublic,
   getS3Config,
   getS3ConfigPublic,
   getStorageConfigPublic,
@@ -41,10 +44,72 @@ export {
 
 export { SIGN_CONCURRENCY };
 
-let cached: { id: StorageProviderId; provider: StorageProvider } | null = null;
+let cached: {
+  fingerprint: string;
+  id: StorageProviderId;
+  provider: StorageProvider;
+} | null = null;
 
-/** 测试或切换厂商后清缓存 */
+async function getProviderFingerprint(id: StorageProviderId): Promise<string> {
+  if (id === 's3') {
+    const c = await getS3Config();
+    return [
+      's3',
+      c.accessKeyId,
+      `${c.secretAccessKey.length}:${c.secretAccessKey.slice(0, 4)}:${c.secretAccessKey.slice(-4)}`,
+      c.bucket,
+      c.region,
+      c.endpoint,
+      c.forcePathStyle ? '1' : '0',
+      c.cdnDomain,
+      c.publicBaseUrl,
+    ].join('|');
+  }
+  if (id === 'oss') {
+    const c = await getOssConfig();
+    return [
+      'oss',
+      c.accessKeyId,
+      `${c.accessKeySecret.length}:${c.accessKeySecret.slice(0, 4)}:${c.accessKeySecret.slice(-4)}`,
+      c.bucket,
+      c.region,
+      c.endpoint,
+      c.cname ? '1' : '0',
+      c.cdnDomain,
+      c.publicBaseUrl,
+      String(c.thumbWidth),
+      c.watermarkEnabled ? '1' : '0',
+      c.watermarkText,
+    ].join('|');
+  }
+  const c = await getCosConfig();
+  return [
+    'cos',
+    c.secretId,
+    `${c.secretKey.length}:${c.secretKey.slice(0, 4)}:${c.secretKey.slice(-4)}`,
+    c.bucket,
+    c.region,
+    c.cdnDomain,
+    String(c.thumbWidth),
+    c.watermarkEnabled ? '1' : '0',
+    c.watermarkText,
+    c.imageStyleThumb,
+    c.imageStyleFull,
+  ].join('|');
+}
+
+function disposeProvider(provider: StorageProvider | null | undefined) {
+  if (!provider) return;
+  try {
+    provider.dispose?.();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 测试或切换厂商 / 改凭证后清缓存 */
 export function resetStorageProviderCache() {
+  disposeProvider(cached?.provider);
   cached = null;
 }
 
@@ -52,19 +117,23 @@ bindStorageCacheReset(resetStorageProviderCache);
 
 export async function getStorageProvider(): Promise<StorageProvider> {
   const id = await getStorageProviderId();
-  if (cached && cached.id === id) return cached.provider;
+  const fingerprint = await getProviderFingerprint(id);
+  if (cached && cached.fingerprint === fingerprint) return cached.provider;
+
+  disposeProvider(cached?.provider);
 
   let provider: StorageProvider;
   if (id === 's3') {
     const cfg = await getS3Config();
     provider = new S3StorageProvider(cfg);
   } else if (id === 'oss') {
-    provider = new OssStorageProvider();
+    const cfg = await getOssConfig();
+    provider = new OssStorageProvider(cfg);
   } else {
     provider = new CosStorageProvider();
   }
 
-  cached = { id, provider };
+  cached = { fingerprint, id, provider };
   return provider;
 }
 
@@ -164,7 +233,7 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
   return p.abortMultipartUpload(key, uploadId);
 }
 
-/** 图库/分享：是否应用 COS 万象能力 */
+/** 图库/分享：是否应用服务端图片处理（COS 万象 / OSS 图片处理） */
 export async function getImageProcessOptions(): Promise<{
   provider: StorageProviderId;
   watermarkEnabled: boolean;
@@ -173,9 +242,10 @@ export async function getImageProcessOptions(): Promise<{
   imageStyleFull: string;
   thumbWidth: number;
   canProcess: boolean;
+  imageProcess: boolean;
 }> {
   const provider = await getStorageProvider();
-  const canProcess = provider.capabilities.imageProcess;
+  const imageProcess = Boolean(provider.capabilities.imageProcess);
   if (provider.id === 'cos') {
     const cfg = await getCosConfig();
     return {
@@ -186,6 +256,20 @@ export async function getImageProcessOptions(): Promise<{
       imageStyleFull: cfg.imageStyleFull,
       thumbWidth: cfg.thumbWidth,
       canProcess: true,
+      imageProcess: true,
+    };
+  }
+  if (provider.id === 'oss') {
+    const cfg = await getOssConfig();
+    return {
+      provider: 'oss',
+      watermarkEnabled: cfg.watermarkEnabled,
+      watermarkText: cfg.watermarkText,
+      imageStyleThumb: '',
+      imageStyleFull: '',
+      thumbWidth: cfg.thumbWidth,
+      canProcess: true,
+      imageProcess: true,
     };
   }
   return {
@@ -195,6 +279,7 @@ export async function getImageProcessOptions(): Promise<{
     imageStyleThumb: '',
     imageStyleFull: '',
     thumbWidth: 480,
-    canProcess,
+    canProcess: imageProcess,
+    imageProcess,
   };
 }

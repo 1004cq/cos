@@ -93,6 +93,9 @@ export interface StorageProvider {
 
   /** 连通性测试（head bucket） */
   testConnection?(): Promise<{ ok: boolean; error?: string; detail?: string }>;
+
+  /** 释放底层客户端；缓存切换时调用 */
+  dispose?(): void;
 }
 
 export type StorageRuntimeConfig = {

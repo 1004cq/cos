@@ -8,9 +8,11 @@ import {
   PROVIDER_OPTIONS,
   REGION_OPTIONS,
   S3_REGION_HINTS,
+  OSS_REGION_HINTS,
   SOURCE_LABEL,
   hasNonAscii,
   type CosPublicConfig,
+  type OssPublicConfig,
   type S3PublicConfig,
   type StorageProviderId,
   type TestResult,
@@ -53,6 +55,22 @@ export default function AdminSettingsPage() {
     'accessKeyId' | 'accessKeyIdSet' | 'secretAccessKeySet' | 'source' | 'ready'
   > | null>(null);
 
+  const [ossAccessKeyId, setOssAccessKeyId] = useState('');
+  const [ossAccessKeySecret, setOssAccessKeySecret] = useState('');
+  const [ossBucket, setOssBucket] = useState('');
+  const [ossRegion, setOssRegion] = useState('oss-cn-hangzhou');
+  const [ossEndpoint, setOssEndpoint] = useState('');
+  const [ossCname, setOssCname] = useState(false);
+  const [ossCdnDomain, setOssCdnDomain] = useState('');
+  const [ossPublicBaseUrl, setOssPublicBaseUrl] = useState('');
+  const [ossThumbWidth, setOssThumbWidth] = useState(480);
+  const [ossWatermarkEnabled, setOssWatermarkEnabled] = useState(false);
+  const [ossWatermarkText, setOssWatermarkText] = useState('陈庆.我爱你');
+  const [ossMeta, setOssMeta] = useState<Pick<
+    OssPublicConfig,
+    'accessKeyId' | 'accessKeyIdSet' | 'accessKeySecretSet' | 'source' | 'ready'
+  > | null>(null);
+
   const [accountUsername, setAccountUsername] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -73,6 +91,7 @@ export default function AdminSettingsPage() {
 
       const cos = data.cos || data;
       const s3 = data.s3 || {};
+      const oss = data.oss || {};
       setProvider((data.provider as StorageProviderId) || 'cos');
       setMeta({
         secretId: cos.secretId || '',
@@ -109,6 +128,25 @@ export default function AdminSettingsPage() {
       setS3AccessKeyId('');
       setS3SecretAccessKey('');
 
+      setOssMeta({
+        accessKeyId: oss.accessKeyId || '',
+        accessKeyIdSet: Boolean(oss.accessKeyIdSet),
+        accessKeySecretSet: Boolean(oss.accessKeySecretSet),
+        source: oss.source || 'env',
+        ready: Boolean(oss.ready),
+      });
+      setOssBucket(oss.bucket || '');
+      setOssRegion(oss.region || 'oss-cn-hangzhou');
+      setOssEndpoint(oss.endpoint || '');
+      setOssCname(Boolean(oss.cname));
+      setOssCdnDomain(oss.cdnDomain || '');
+      setOssPublicBaseUrl(oss.publicBaseUrl || '');
+      setOssThumbWidth(Number(oss.thumbWidth) || 480);
+      setOssWatermarkEnabled(Boolean(oss.watermarkEnabled));
+      setOssWatermarkText(oss.watermarkText || '陈庆.我爱你');
+      setOssAccessKeyId('');
+      setOssAccessKeySecret('');
+
       if (accRes.ok) {
         const acc = await accRes.json();
         setAccountUsername(acc.username || session?.user?.name || '');
@@ -143,6 +181,25 @@ export default function AdminSettingsPage() {
       return { provider: 's3' as const, s3 };
     }
 
+    if (provider === 'oss') {
+      const oss: Record<string, unknown> = {
+        bucket: ossBucket.trim(),
+        region: ossRegion.trim() || 'oss-cn-hangzhou',
+        endpoint: ossEndpoint.trim(),
+        cname: ossCname,
+        cdnDomain: ossCdnDomain.trim(),
+        publicBaseUrl: ossPublicBaseUrl.trim(),
+        thumbWidth: Number(ossThumbWidth) || 480,
+        watermarkEnabled: ossWatermarkEnabled,
+        watermarkText: ossWatermarkText.trim() || '陈庆.我爱你',
+      };
+      const ak = ossAccessKeyId.trim();
+      const sk = ossAccessKeySecret.trim();
+      if (ak && !ak.includes('****')) oss.accessKeyId = ak;
+      if (sk && !sk.includes('****')) oss.accessKeySecret = sk;
+      return { provider: 'oss' as const, oss };
+    }
+
     let cdn = cdnDomain.trim();
     if (hasNonAscii(cdn) || /xn--/i.test(cdn)) cdn = '';
     const cos: Record<string, unknown> = {
@@ -169,11 +226,12 @@ export default function AdminSettingsPage() {
     setTestResult(null);
 
     try {
-      if (provider === 'oss') {
-        throw new Error('阿里云 OSS 尚未实现，请选择腾讯云 COS 或 S3 兼容');
-      }
       if (provider === 's3') {
         if (!s3Bucket.trim()) throw new Error('Bucket 为必填');
+      } else if (provider === 'oss') {
+        if (!ossBucket.trim() || !ossRegion.trim()) {
+          throw new Error('Bucket 与 Region 为必填');
+        }
       } else if (!bucket.trim() || !region.trim()) {
         throw new Error('Bucket 与 Region 为必填');
       }
@@ -190,6 +248,7 @@ export default function AdminSettingsPage() {
       setProvider((data.provider as StorageProviderId) || provider);
       const cos = data.cos || data;
       const s3 = data.s3 || {};
+      const oss = data.oss || {};
       setMeta({
         secretId: cos.secretId || '',
         secretIdSet: Boolean(cos.secretIdSet),
@@ -223,16 +282,34 @@ export default function AdminSettingsPage() {
       setS3PublicBaseUrl(s3.publicBaseUrl || '');
       setS3AccessKeyId('');
       setS3SecretAccessKey('');
+      setOssMeta({
+        accessKeyId: oss.accessKeyId || '',
+        accessKeyIdSet: Boolean(oss.accessKeyIdSet),
+        accessKeySecretSet: Boolean(oss.accessKeySecretSet),
+        source: oss.source || 'database',
+        ready: Boolean(oss.ready),
+      });
+      setOssBucket(oss.bucket || ossBucket);
+      setOssRegion(oss.region || ossRegion);
+      setOssEndpoint(oss.endpoint || '');
+      setOssCname(Boolean(oss.cname));
+      setOssCdnDomain(oss.cdnDomain || '');
+      setOssPublicBaseUrl(oss.publicBaseUrl || '');
+      setOssThumbWidth(Number(oss.thumbWidth) || ossThumbWidth);
+      setOssWatermarkEnabled(Boolean(oss.watermarkEnabled));
+      setOssWatermarkText(oss.watermarkText || ossWatermarkText);
+      setOssAccessKeyId('');
+      setOssAccessKeySecret('');
 
       if (withTest && data.test) {
         setTestResult(data.test as TestResult);
-        if (data.test.ok) setSuccess('已保存，连通性测试通过');
+        if (data.test.ok) setSuccess('已保存并立即生效，连通性测试通过');
         else {
-          setSuccess('已保存');
+          setSuccess('已保存并立即生效');
           setError(data.test.error || '连通性测试失败');
         }
       } else {
-        setSuccess('配置已保存');
+        setSuccess('配置已保存并立即生效');
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '保存失败');
@@ -261,8 +338,10 @@ export default function AdminSettingsPage() {
       setTestResult({
         ok: Boolean(data.ok),
         error: data.error,
+        detail: data.detail,
         bucket: data.bucket,
         region: data.region,
+        endpoint: data.endpoint,
         provider: data.provider,
       });
       if (data.ok) setSuccess('连通性测试通过（未保存表单更改，除非已点保存）');
@@ -273,8 +352,18 @@ export default function AdminSettingsPage() {
       setBusy(null);
       setSecretKey('');
       setS3SecretAccessKey('');
+      setOssAccessKeySecret('');
     }
   }
+
+  const providerReady =
+    provider === 's3'
+      ? s3Meta?.ready
+      : provider === 'oss'
+        ? ossMeta?.ready
+        : meta?.ready;
+  const providerLabel =
+    provider === 's3' ? 'S3' : provider === 'oss' ? 'OSS' : 'COS';
 
   async function handleAccountSave(e: React.FormEvent) {
     e.preventDefault();
@@ -355,13 +444,24 @@ export default function AdminSettingsPage() {
           <span
             className={cn(
               'px-2.5 py-1 rounded-lg glass',
-              meta?.ready ? 'text-green-700' : 'text-amber-700'
+              providerReady ? 'text-green-700' : 'text-amber-700'
             )}
           >
-            {provider === 's3' ? 'S3' : 'COS'} {(provider === 's3' ? s3Meta?.ready : meta?.ready) ? '就绪' : '未就绪'}
+            {providerLabel} {providerReady ? '就绪' : '未就绪'}
           </span>
           <span className="px-2.5 py-1 rounded-lg glass" style={{ color: 'var(--text-muted)' }}>
-            来源：{meta ? SOURCE_LABEL[meta.source] : '—'}
+            来源：
+            {provider === 's3'
+              ? s3Meta
+                ? SOURCE_LABEL[s3Meta.source]
+                : '—'
+              : provider === 'oss'
+                ? ossMeta
+                  ? SOURCE_LABEL[ossMeta.source]
+                  : '—'
+                : meta
+                  ? SOURCE_LABEL[meta.source]
+                  : '—'}
           </span>
         </div>
       </div>
@@ -479,9 +579,13 @@ export default function AdminSettingsPage() {
           )}
           <span>
             {testResult.ok
-              ? `headBucket 成功${testResult.bucket ? ` · ${testResult.bucket}` : ''}${
-                  testResult.region ? ` @ ${testResult.region}` : ''
-                }`
+              ? testResult.provider === 'oss'
+                ? `OSS 连通正常${testResult.detail ? ` · ${testResult.detail}` : testResult.bucket ? ` · ${testResult.bucket}` : ''}`
+                : testResult.provider === 's3'
+                  ? `S3 连通正常${testResult.detail ? ` · ${testResult.detail}` : testResult.bucket ? ` · ${testResult.bucket}` : ''}`
+                  : `headBucket 成功${testResult.bucket ? ` · ${testResult.bucket}` : ''}${
+                      testResult.region ? ` @ ${testResult.region}` : ''
+                    }`
               : testResult.error || '测试失败'}
           </span>
         </div>
@@ -490,7 +594,8 @@ export default function AdminSettingsPage() {
       <div className="rounded-3xl glass p-6 space-y-4">
         <h2 className="text-lg font-semibold">存储厂商</h2>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          切换厂商后保存才会生效。腾讯云 COS 的数据万象能力在 S3 上会自动降级（无缩略/水印则签原图）。
+          切换或修改凭证后保存立即生效。COS 用数据万象；OSS 用图片处理缩略；S3
+          无服务端处理时列表会降级。
         </p>
         <div className="grid gap-2 sm:grid-cols-3">
           {PROVIDER_OPTIONS.map((opt) => (
@@ -525,7 +630,11 @@ export default function AdminSettingsPage() {
         autoComplete="off"
       >
         <h2 className="text-lg font-semibold">
-          {provider === 's3' ? 'S3 兼容存储' : '腾讯云 COS'}
+          {provider === 's3'
+            ? 'S3 兼容存储'
+            : provider === 'oss'
+              ? '阿里云 OSS'
+              : '腾讯云 COS'}
         </h2>
         {provider === 's3' ? (
           <>
@@ -619,6 +728,139 @@ export default function AdminSettingsPage() {
                 onChange={(e) => setS3PublicBaseUrl(e.target.value)}
                 placeholder="https://pub-xxx.r2.dev"
               />
+            </div>
+          </>
+        ) : provider === 'oss' ? (
+          <>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Region 形如 oss-cn-hangzhou。缩略图走 OSS 图片处理（x-oss-process）；可选文字水印。自定义域名可填
+              Endpoint 并开启 CNAME。
+            </p>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">AccessKey ID</label>
+              <input
+                className="input-glass font-mono text-sm"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={ossAccessKeyId}
+                onChange={(e) => setOssAccessKeyId(e.target.value)}
+                placeholder={
+                  ossMeta?.accessKeyIdSet
+                    ? `已配置 ${ossMeta.accessKeyId || '****'}，留空不修改`
+                    : 'LTAI…'
+                }
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">AccessKey Secret</label>
+              <input
+                className="input-glass font-mono text-sm"
+                type="password"
+                autoComplete="new-password"
+                value={ossAccessKeySecret}
+                onChange={(e) => setOssAccessKeySecret(e.target.value)}
+                placeholder={
+                  ossMeta?.accessKeySecretSet ? '已配置则留空不修改' : 'AccessKey Secret'
+                }
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Bucket</label>
+              <input
+                className="input-glass font-mono text-sm"
+                value={ossBucket}
+                onChange={(e) => setOssBucket(e.target.value)}
+                placeholder="my-bucket"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Region</label>
+              <input
+                className="input-glass font-mono text-sm"
+                list="oss-region-list"
+                value={ossRegion}
+                onChange={(e) => setOssRegion(e.target.value)}
+                placeholder="oss-cn-hangzhou"
+                required
+              />
+              <datalist id="oss-region-list">
+                {OSS_REGION_HINTS.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Endpoint（可选）</label>
+              <input
+                className="input-glass font-mono text-sm"
+                value={ossEndpoint}
+                onChange={(e) => setOssEndpoint(e.target.value)}
+                placeholder="oss-cn-hangzhou.aliyuncs.com 或自定义域名"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={ossCname}
+                onChange={(e) => setOssCname(e.target.checked)}
+              />
+              Endpoint 为自定义 / CDN 域名（CNAME）
+            </label>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">CDN 域名（可选）</label>
+              <input
+                className="input-glass text-sm"
+                value={ossCdnDomain}
+                onChange={(e) => setOssCdnDomain(e.target.value)}
+                placeholder="cdn.example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">Public Base URL（可选）</label>
+              <input
+                className="input-glass text-sm"
+                value={ossPublicBaseUrl}
+                onChange={(e) => setOssPublicBaseUrl(e.target.value)}
+                placeholder="https://cdn.example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1.5 font-medium">缩略图宽度</label>
+              <input
+                className="input-glass text-sm"
+                type="number"
+                min={120}
+                max={1200}
+                value={ossThumbWidth}
+                onChange={(e) => setOssThumbWidth(Number(e.target.value) || 480)}
+              />
+              <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                120–1200，默认 480（OSS image/resize）
+              </p>
+            </div>
+            <div className="space-y-3 rounded-2xl glass p-4">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ossWatermarkEnabled}
+                  onChange={(e) => setOssWatermarkEnabled(e.target.checked)}
+                  className="rounded border-black/20"
+                />
+                展示链文字水印（可选）
+              </label>
+              <input
+                className="input-glass text-sm"
+                value={ossWatermarkText}
+                maxLength={40}
+                disabled={!ossWatermarkEnabled}
+                onChange={(e) => setOssWatermarkText(e.target.value)}
+                placeholder="陈庆.我爱你"
+              />
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                开启后经 OSS 图片处理叠加水印（需桶开通图片处理）。
+              </p>
             </div>
           </>
         ) : (
