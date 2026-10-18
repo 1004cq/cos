@@ -337,7 +337,7 @@ export async function getOssConfig(): Promise<OssRuntimeConfig> {
       process.env.OSS_WATERMARK_ENABLED === 'true';
   }
 
-  let watermarkText = '陈庆.我爱你';
+  let watermarkText = 'Gallery';
   if (dbWmText !== null) {
     fromDb++;
     watermarkText = dbWmText.trim().slice(0, 40) || watermarkText;
@@ -423,7 +423,7 @@ export async function saveOssConfig(input: OssConfigInput): Promise<void> {
   if (input.watermarkText !== undefined) {
     await upsertSetting(
       'oss.watermarkText',
-      input.watermarkText.trim().slice(0, 40) || '陈庆.我爱你',
+      input.watermarkText.trim().slice(0, 40) || 'Gallery',
       false
     );
   }

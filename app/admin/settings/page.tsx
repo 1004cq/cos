@@ -65,7 +65,7 @@ export default function AdminSettingsPage() {
   const [ossPublicBaseUrl, setOssPublicBaseUrl] = useState('');
   const [ossThumbWidth, setOssThumbWidth] = useState(480);
   const [ossWatermarkEnabled, setOssWatermarkEnabled] = useState(false);
-  const [ossWatermarkText, setOssWatermarkText] = useState('陈庆.我爱你');
+  const [ossWatermarkText, setOssWatermarkText] = useState('Gallery');
   const [ossMeta, setOssMeta] = useState<Pick<
     OssPublicConfig,
     'accessKeyId' | 'accessKeyIdSet' | 'accessKeySecretSet' | 'source' | 'ready'
@@ -143,7 +143,7 @@ export default function AdminSettingsPage() {
       setOssPublicBaseUrl(oss.publicBaseUrl || '');
       setOssThumbWidth(Number(oss.thumbWidth) || 480);
       setOssWatermarkEnabled(Boolean(oss.watermarkEnabled));
-      setOssWatermarkText(oss.watermarkText || '陈庆.我爱你');
+      setOssWatermarkText(oss.watermarkText || 'Gallery');
       setOssAccessKeyId('');
       setOssAccessKeySecret('');
 
@@ -191,7 +191,7 @@ export default function AdminSettingsPage() {
         publicBaseUrl: ossPublicBaseUrl.trim(),
         thumbWidth: Number(ossThumbWidth) || 480,
         watermarkEnabled: ossWatermarkEnabled,
-        watermarkText: ossWatermarkText.trim() || '陈庆.我爱你',
+        watermarkText: ossWatermarkText.trim() || 'Gallery',
       };
       const ak = ossAccessKeyId.trim();
       const sk = ossAccessKeySecret.trim();
@@ -856,7 +856,7 @@ export default function AdminSettingsPage() {
                 maxLength={40}
                 disabled={!ossWatermarkEnabled}
                 onChange={(e) => setOssWatermarkText(e.target.value)}
-                placeholder="陈庆.我爱你"
+                placeholder="Gallery"
               />
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 开启后经 OSS 图片处理叠加水印（需桶开通图片处理）。
