@@ -257,15 +257,11 @@ export function Lightbox({
         />
       </div>
 
-      {/* 返回键：始终可见（白底圆形左箭头），不随 chrome 隐藏 */}
+      {/* 返回键：始终可见，避让刘海/横屏安全区，不随 chrome 隐藏 */}
       <button
         type="button"
         onClick={onClose}
-        className="photos-icon-btn-viewer absolute z-[35]"
-        style={{
-          top: 'max(12px, calc(env(safe-area-inset-top) + 8px))',
-          left: '12px',
-        }}
+        className="photos-icon-btn-viewer photos-viewer-back absolute z-[35]"
         aria-label="返回"
         onTouchStart={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -273,13 +269,12 @@ export function Lightbox({
         <ChevronLeft className="w-5 h-5" strokeWidth={2.75} />
       </button>
 
-      {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏） */}
+      {/* 顶栏浮层：日期胶囊 + 更多（可随点击隐藏）；安全区由 CSS 处理 */}
       <header
         className={cn(
           'photos-viewer-chrome-top absolute inset-x-0 top-0 z-30 flex items-center justify-end gap-2 px-2 py-1.5 min-h-[48px] transition-opacity duration-250',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingTop: 'max(10px, env(safe-area-inset-top))' }}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -289,8 +284,7 @@ export function Lightbox({
 
         <button
           type="button"
-          className="photos-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[128px] transition-opacity duration-200"
-          style={{ top: 'max(10px, calc(env(safe-area-inset-top) + 6px))' }}
+          className="photos-date-capsule photos-viewer-date-capsule absolute left-1/2 -translate-x-1/2 flex flex-col items-center px-4 py-1.5 min-w-[128px] transition-opacity duration-200"
           onClick={() => setInfoOpen((v) => !v)}
         >
           <span className="text-[13px] font-semibold leading-tight text-black">{weekday}</span>
@@ -310,10 +304,7 @@ export function Lightbox({
       </header>
 
       {menuOpen && chromeVisible && (
-        <div
-          className="absolute right-3 z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px]"
-          style={{ top: 'calc(env(safe-area-inset-top) + 52px)' }}
-        >
+        <div className="photos-viewer-menu absolute z-[40] rounded-xl bg-white/95 shadow-lg border border-black/5 py-1 min-w-[140px]">
           <button
             type="button"
             className="w-full text-left px-4 py-2.5 text-[15px] hover:bg-black/5"
@@ -340,10 +331,7 @@ export function Lightbox({
       )}
 
       {infoOpen && chromeVisible && (
-        <div
-          className="absolute inset-x-4 z-30 px-4 py-3 rounded-2xl bg-[#F2F2F7]/95 text-sm shadow-sm"
-          style={{ top: 'calc(env(safe-area-inset-top) + 56px)' }}
-        >
+        <div className="photos-viewer-info absolute z-30 px-4 py-3 rounded-2xl bg-[#F2F2F7]/95 text-sm shadow-sm">
           <p className="font-medium truncate">{title}</p>
           <p className="text-[var(--photos-muted)] mt-1 text-xs">
             {weekday} · {timeLabel}
@@ -351,13 +339,12 @@ export function Lightbox({
         </div>
       )}
 
-      {/* 底栏浮层：不占文档流，不挤压媒体 */}
+      {/* 底栏浮层：底部/左右安全区由 CSS 处理，不挤压媒体 */}
       <div
         className={cn(
           'photos-viewer-chrome-bottom absolute inset-x-0 bottom-0 z-30 flex flex-col transition-opacity duration-250',
           chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         )}
-        style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
         onPointerDown={(e) => {
           e.stopPropagation();
           if (videoPlaying) scheduleAutoHide();
@@ -377,7 +364,7 @@ export function Lightbox({
         {items.length > 1 && (
           <div
             ref={filmstripRef}
-            className="photos-filmstrip flex gap-1.5 px-3 py-2 overflow-x-auto no-scrollbar"
+            className="photos-filmstrip flex gap-1.5 py-2 overflow-x-auto no-scrollbar"
           >
             {items.map((item, i) => {
               const itemVideo = item.mimeType.startsWith('video/');

@@ -182,10 +182,7 @@ export default function HomePage() {
 
   return (
     <div className="photos-app min-h-[100dvh] flex flex-col bg-[#FFFFFF]">
-      <header
-        className="sticky top-0 z-20 bg-[#FFFFFF]/92 backdrop-blur-xl border-b border-black/[0.06]"
-        style={{ paddingTop: 'env(safe-area-inset-top)' }}
-      >
+      <header className="photos-app-header sticky top-0 z-20 bg-[#FFFFFF]/92 backdrop-blur-xl border-b border-black/[0.06]">
         <div className="flex items-start justify-between gap-2 px-4 pt-2 pb-2 min-h-[52px]">
           <div className="min-w-0 flex-1">
             <h1 className="text-[34px] font-bold leading-tight tracking-tight text-black">
@@ -227,7 +224,7 @@ export default function HomePage() {
 
       {error && <p className="text-center px-4 py-3 text-sm text-red-500">{error}</p>}
 
-      <main className="flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] touch-pan-y">
+      <main className="photos-app-main flex-1 touch-pan-y">
         {loading ? (
           <div
             className="photos-grid"
