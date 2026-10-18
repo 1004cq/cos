@@ -1,341 +1,283 @@
 # 相册 · 无损照片/视频相册系统
 
-> **定位**：高安全、原画质、可管理的媒体相册，支持腾讯云 COS / S3 兼容存储。
+> **定位**：高安全、原画质、可管理的个人媒体相册。  
+> 支持腾讯云 COS 与 S3 兼容存储（AWS S3 / Cloudflare R2 / MinIO 等）。
+
+**English version below** ↓
 
 ---
 
-## 一、项目目标
+## 功能特性
 
-1. **无损存储**：照片、视频以原始文件完整保存在对象存储。
-2. **管理员后台**：批量上传、相册管理、媒体管理、封面设置。
-3. **前台展示**：时间轴 + 相册 + 灯箱预览 + 视频播放 + 原图下载。
-4. **强力防盗刷**：私有桶 + 短时效签名 URL + Referer 白名单 + CDN 鉴权 + 用量封顶。
-5. **可配置站点域名**：网页可用任意域名；媒体 CDN 请使用英文域名。
-
----
-
-## 二、系统架构
-
-### 2.1 总体架构图
-
-```mermaid
-graph TB
-    subgraph Client
-        A[用户浏览器 / 手机]
-        B[管理员后台]
-    end
-
-    subgraph Application[应用层 - Next.js 15]
-        C[前台页面<br/>时间轴 / 相册 / 灯箱]
-        D[管理后台<br/>上传 / 相册 / 媒体]
-        E[API Routes<br/>认证 / 预签名 / 签名 / CRUD]
-    end
-
-    subgraph Security[安全层]
-        F[NextAuth]
-        G[签名 URL 服务]
-        H[Referer + CDN 鉴权]
-    end
-
-    subgraph Storage
-        I[(PostgreSQL)]
-        J[腾讯云 COS<br/>私有原文件]
-        K[腾讯云 CDN]
-    end
-
-    A --> C
-    B --> D
-    C --> E
-    D --> E
-    E --> F
-    E --> G
-    G --> J
-    E --> I
-    J --> K
-    K --> A
-    H --> K
-```
-
-### 2.2 分层职责
-
-| 层级 | 职责 | 实现 |
-|------|------|------|
-| 表现层 | 页面与交互 | Next.js App Router + Tailwind + shadcn/ui |
-| 应用层 | 业务编排、权限 | API Routes + Server Actions |
-| 领域层 | 核心模型 | Prisma |
-| 基础设施 | 存储、认证 | COS SDK、NextAuth、PostgreSQL |
-| 安全层 | 防盗刷 | 私有桶 + 临时签名 + Referer + CDN |
-
-### 2.3 核心数据流
-
-**上传（预签名直传 · 原文件字节无损）**
-```
-管理员 → POST /api/upload/presign（filename / contentType / size）
-      → 前端 XMLHttpRequest PUT 原 File 到 COS（Content-Type 与预签名一致）
-      → POST /api/media 入库（写入真实 mimeType；并 HEAD COS 核对 size）
-```
-
-- iPhone 原相机 `.MOV` / `.MP4`（HEVC 或 H.264）按原字节上传，**不做转码/压缩**。
-- 当前为**单次 PUT**（适合中等文件；上传页对超过 100MB 会提示保持屏幕常亮）。
-- **超大文件后续可加 multipart / 分片上传，仍按原字节无损**，不改变私有桶 + 签名访问模型。
-- 建议用 **Safari** 打开上传页，避免微信内置浏览器；请直接从系统相册选原视频。
-
-**访问（强制签名）**
-```
-用户 → 前端请求 /api/sign → 后端校验权限后返回临时 GET 签名 URL
-     → 前端用该 URL 加载图片/视频
-```
+- **无损存储**：照片与视频按原始字节保存，不做转码或压缩
+- **多厂商存储**：腾讯云 COS（完整数据万象支持）+ S3 兼容（R2 / MinIO / AWS）
+- **Apple Photos 风格前台**：时间轴、密度切换、捏合缩放、灯箱预览、视频播放
+- **管理后台**：批量上传、相册管理、媒体库、封面设置、分享链接、访问统计
+- **强安全模型**：私有桶 + 短时效签名 URL + 登录限流 + 密钥加密存储
+- **大文件支持**：单次 PUT + Multipart 分片上传（>100MB 自动切换）
+- **性能优化**：图库分页 + 无限滚动、缩略图签名缓存、网格虚拟滚动
 
 ---
 
-## 三、技术栈
+## 技术栈
 
-- **框架**：Next.js 15 (App Router) + TypeScript
-- **UI**：Tailwind CSS + shadcn/ui + Lucide React
-- **数据库**：PostgreSQL + Prisma
-- **认证**：NextAuth.js (Credentials)
-- **存储**：腾讯云 COS (`cos-nodejs-sdk-v5`)
-- **部署**：Vercel 或 Docker Compose
+| 类别 | 技术 |
+|------|------|
+| 框架 | Next.js 15 (App Router) + TypeScript |
+| UI | Tailwind CSS + Lucide React |
+| 数据库 | PostgreSQL + Prisma |
+| 认证 | NextAuth.js (Credentials + JWT) |
+| 存储 | 腾讯云 COS / S3 兼容（AWS SDK） |
+| 部署 | Docker Compose / Vercel |
 
 ---
 
-## 四、数据库设计
+## 快速开始
 
-完整 schema 见 `prisma/schema.prisma`。
+### 1. 克隆与安装
 
-主要模型：`User`、`Album`、`Media`、`ShareLink`。
+```bash
+git clone https://github.com/1004cq/cos.git
+cd cos
+npm install
+```
 
-`Media.title` 为可选展示标题（`filename` 始终保留原文件名）。变更 schema 后在部署环境执行：
+### 2. 配置环境变量
+
+复制 `.env.example` 为 `.env`，至少填写：
+
+```env
+DATABASE_URL="postgresql://user:pass@localhost:5432/cos"
+NEXTAUTH_SECRET="your-long-random-secret"
+NEXTAUTH_URL="http://localhost:3000"
+
+# 腾讯云 COS（默认）
+COS_SECRET_ID=
+COS_SECRET_KEY=
+COS_BUCKET=
+COS_REGION=
+
+# 可选：独立密钥加密密钥（生产强烈建议）
+SETTINGS_ENCRYPT_KEY=
+```
+
+也可在后台「存储设置」中配置，支持运行时切换厂商。
+
+### 3. 初始化数据库
 
 ```bash
 npx prisma db push
 npx prisma generate
+npm run db:seed   # 可选，创建初始管理员
 ```
 
----
+### 4. 启动
 
-## 五、API 接口设计
-
-- 上传预签名：`POST /api/upload/presign`
-- 媒体入库：`POST /api/media`
-- 签名访问：`GET /api/sign`
-- 相册 / 媒体 CRUD、分享等
-
----
-
-## 六、COS 签名代码
-
-核心逻辑已在 `lib/cos.ts` 中实现（预签名上传 + 访问签名 + key 生成）。
-
----
-
-## 七、UI 页面说明
-
-**前台**：时间轴、相册页、灯箱、分享页  
-**后台**：登录、上传、相册管理、媒体库、仪表盘
-
----
-
-## 八、安全配置清单（上线必做）
-
-### 8.1 存储桶基础
-
-| 配置项 | 推荐值 | 必做 |
-|--------|--------|------|
-| 访问权限 | **私有读写** | ✅ |
-| 版本控制 | 开启 | 建议 |
-
-> 路径：存储桶 → 权限管理
-
----
-
-### 8.2 COS 防盗链（Referer）
-
-**路径**：存储桶 → 安全管理 → 防盗链设置
-
-| 配置项 | 推荐值 |
-|--------|--------|
-| 状态 | 开启 |
-| 类型 | **白名单** |
-| 空 Referer | **拒绝** |
-| Referer | 见下方 |
-
-**Referer 填写内容（示例，请换成你的站点域名）：**
-
-```text
-photos.example.com
-*.photos.example.com
+```bash
+npm run dev
 ```
 
-**说明：**
-- `photos.example.com` → 匹配主域名
-- `*.photos.example.com` → 匹配所有子域名
-- 空 Referer 选「拒绝」可拦截直接复制链接、curl、下载工具
-
-**验证方法：**
-
-| 测试方式 | 预期结果 |
-|----------|----------|
-| 从网站页面正常访问图片 | 成功显示 |
-| 直接复制图片链接到新标签页 | 返回 403 |
-| curl 不带 Referer 请求 | 返回 403 |
-
-> 本地开发可临时允许空 Referer 或加入 `localhost`，上线前必须改回。
+访问 `http://localhost:3000` 查看前台，`/admin/login` 进入后台。
 
 ---
 
-### 8.3 CDN 配置（强烈推荐）
+## 存储厂商
 
-| 配置项 | 推荐值 | 说明 |
-|--------|--------|------|
-| 加速域名 | `cdn.example.com`（英文域） | 绑定到 COS 源站 |
-| 防盗链 | 白名单 + 拒绝空 Referer | 与 COS 保持一致 |
-| URL 鉴权 | TypeA / TypeC | 额外一层签名保护 |
-| 用量封顶 | 开启 | 超限返回 404，防账单爆炸 |
-| HTTPS | 强制跳转 | 必须 |
-| 回源鉴权 | 开启 | 私有桶必须开启 |
+在后台 **设置 → 存储** 中切换：
 
----
-
-### 8.4 预签名安全
-
-| 场景 | 推荐有效期 |
-|------|------------|
-| 上传预签名（PUT） | **3 ~ 10 分钟** |
-| 访问预签名（GET） | **15 ~ 60 分钟** |
-
-**额外建议：**
-- 优先使用 STS 临时密钥生成签名
-- 所有媒体访问必须经过后端 `/api/sign`
-- 禁止前端直接拼接 COS 原始链接
-
----
-
-### 8.5 监控告警
-
-| 项目 | 建议 |
-|------|------|
-| 云监控 | 设置「外网下行流量」异常告警 |
-| CDN 用量封顶 | 设置合理阈值并开启 |
-
----
-
-### 8.6 上线前最终检查清单
-
-```text
-□ 存储桶权限 = 私有读写
-□ COS 防盗链已开启（白名单 + 拒绝空 Referer）
-□ Referer 已填写：站点域名与通配符（如 photos.example.com）
-□ 已验证：直接复制链接会返回 403
-□ （推荐）已接入 CDN，并开启防盗链 + URL 鉴权 + 用量封顶
-□ 预签名有效期已缩短（上传 ≤10分钟，访问 ≤60分钟）
-□ COS_SECRET_KEY 仅存在于服务端环境变量
-□ 云监控流量告警已配置
-```
-
----
-
-## 九、COS 生命周期管理策略
-
-生命周期用于自动将冷数据沉降到更便宜的存储类型，或清理无用碎片，从而降低长期存储成本。
-
-### 9.1 存储类型对比
-
-| 存储类型 | 适合场景 | 取回速度 | 最低存储时长 | 相对成本 |
-|----------|----------|----------|--------------|----------|
-| 标准存储 | 经常访问的热数据 | 实时 | 无 | 最高 |
-| 低频存储 (STANDARD_IA) | 偶尔访问 | 实时 | 30 天 | 较低 |
-| 智能分层 | 访问规律不确定 | 自动分层 | 无 | 中等 |
-| 归档存储 (ARCHIVE) | 很少访问、可接受恢复 | 需恢复 | 90 天 | 很低 |
-| 深度归档 | 几乎不访问的长期备份 | 需恢复（更慢） | 180 天 | 最低 |
-
-> 个人相册一般**不建议**直接沉降到归档/深度归档，恢复需要时间，体验较差。
-
-### 9.2 推荐策略（针对本项目）
-
-**策略 A：稳健型（推荐）**
-
-| 规则 | 条件 | 操作 | 说明 |
-|------|------|------|------|
-| 规则1 | 前缀 `media/` | **90 天后** → 低频存储 | 3 个月后访问频率通常下降 |
-| 规则2 | 未完成的分块上传 | **7 天后删除** | 清理上传失败产生的碎片 |
-
-- 优点：随时能快速打开老照片，成本已明显降低
-- 缺点：不会降到归档，成本不是最低
-
-**策略 B：激进省钱型（存储量很大时考虑）**
-
-| 规则 | 条件 | 操作 |
+| 厂商 | 状态 | 说明 |
 |------|------|------|
-| 规则1 | 前缀 `media/` | 60 天后 → 低频存储 |
-| 规则2 | 前缀 `media/` | 180 天后 → 归档存储 |
-| 规则3 | 分块上传碎片 | 3 天后删除 |
+| 腾讯云 COS | ✅ 完整 | 数据万象缩略图、样式、水印、STS |
+| S3 兼容 | ✅ 可用 | AWS S3 / Cloudflare R2 / MinIO，缩略图降级为原图或 poster |
+| 阿里云 OSS | 🚧 占位 | 尚未实现 |
 
-> 注意：归档后查看需要先「恢复」，不适合经常回看的相册。
+对象键统一规则：`media/YYYY/MM/DD/{timestamp}-{random}.{ext}`
 
-**策略 C：智能分层（最省心）**
+---
 
-新上传文件直接使用**智能分层存储**，由 COS 根据实际访问情况自动在高频/低频层之间切换。
+## 安全要点
 
-### 9.3 本项目最终建议配置
+- 存储桶必须设为**私有读写**
+- 所有媒体访问必须经过后端签名（`/api/sign` 或图库接口）
+- 生产环境务必配置 `NEXTAUTH_SECRET` 或 `SETTINGS_ENCRYPT_KEY`
+- 建议开启 COS/CDN 防盗链（Referer 白名单 + 拒绝空 Referer）
+- 建议开启用量封顶与流量告警
 
-结合当前 key 规则（`media/年/月/日/...`），推荐：
+---
 
-1. **主规则（稳健）**
-   - 前缀：`media/`
-   - 90 天后沉降到 **低频存储 (STANDARD_IA)**
-   - **不自动删除**任何原图/原视频（个人相册通常希望永久保留）
+## 部署
 
-2. **清理规则（必须）**
-   - 未完成的分块上传：**7 天后自动删除**
+### Docker Compose（推荐自有 VPS）
 
-3. **可选规则**
-   - 若有临时目录（`temp/`、`upload-tmp/`），可设置 1~3 天后自动删除
-
-### 9.4 配置路径
-
-```
-COS 控制台 → 存储桶 → 基础配置 → 生命周期 → 添加规则
+```bash
+docker compose up -d --build
 ```
 
-支持基于「最后修改时间」或「最后访问时间」（后者需开启访问追踪）。
+### Vercel
 
-### 9.5 重要注意事项
-
-1. **沉降是单向的**：只能从热到冷，不能从归档直接变回标准。
-2. **最低存储时长**：低频 30 天、归档 90 天、深度归档 180 天。提前删除会补差价。
-3. **删除优先于沉降**：同一时间既配置删除又配置沉降时，会先执行删除。
-4. **个人相册建议保守**：优先保证随时能打开，而不是追求最低成本。
-5. **测试建议**：先用测试前缀（如 `test-lifecycle/`）验证规则，确认无误后再应用到正式 `media/`。
+连接 GitHub 仓库，配置环境变量后部署即可。
 
 ---
 
-## 十、部署方案
+## 项目结构
 
-- **Vercel**：最快上线
-- **Docker Compose**：推荐自有 VPS（已提供 `docker-compose.yml`）
-
----
-
-## 十一、实现优先级
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| Phase 1 | 骨架、登录、预签名上传 | ✅ 已完成 |
-| Phase 2 | 相册 CRUD、前台时间轴、强制签名访问 | 待开始 |
-| Phase 3 | 分享、批量操作、体验优化 | 待开始 |
-| Phase 4 | 上线、监控、最终安全检查 | 待开始 |
+```
+app/                  # Next.js App Router 页面与 API
+components/           # 前台与后台组件
+lib/
+  storage/            # 多厂商存储抽象（COS / S3 / OSS 占位）
+  cos.ts              # 腾讯云 COS 核心实现
+prisma/               # 数据库 Schema
+```
 
 ---
 
-## 十二、注意事项
+## 许可证
 
-1. `COS_SECRET_KEY` 绝对不能出现在前端或 Git。
-2. 所有媒体访问必须经过 `/api/sign`。
-3. 大文件务必使用预签名直传。
-4. 先用测试桶验证签名和防盗链，再切生产。
-5. 定期备份数据库 + COS。
+私有项目，仅供个人使用。
 
 ---
 
-**当前状态**：Phase 1 代码已落地，安全配置 + 生命周期策略已完整写入。可继续推进 Phase 2。
+<div align="center">
+
+**English**
+
+</div>
+
+---
+
+# Gallery · Lossless Photo & Video Album
+
+> A high-security, original-quality, manageable personal media album.  
+> Supports Tencent Cloud COS and S3-compatible storage (AWS S3 / Cloudflare R2 / MinIO, etc.).
+
+---
+
+## Features
+
+- **Lossless storage**: Photos and videos are stored as original bytes (no transcoding or compression)
+- **Multi-provider storage**: Tencent Cloud COS (full CI support) + S3-compatible (R2 / MinIO / AWS)
+- **Apple Photos-style frontend**: Timeline, density switching, pinch-to-zoom, lightbox, video playback
+- **Admin backend**: Batch upload, album management, media library, cover setting, share links, visit stats
+- **Strong security model**: Private bucket + short-lived signed URLs + login rate limiting + encrypted secrets
+- **Large file support**: Single PUT + Multipart upload (auto-switch for files > 100MB)
+- **Performance**: Gallery pagination + infinite scroll, thumbnail sign cache, virtualized grid
+
+---
+
+## Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Framework | Next.js 15 (App Router) + TypeScript |
+| UI | Tailwind CSS + Lucide React |
+| Database | PostgreSQL + Prisma |
+| Auth | NextAuth.js (Credentials + JWT) |
+| Storage | Tencent Cloud COS / S3-compatible (AWS SDK) |
+| Deploy | Docker Compose / Vercel |
+
+---
+
+## Quick Start
+
+### 1. Clone & Install
+
+```bash
+git clone https://github.com/1004cq/cos.git
+cd cos
+npm install
+```
+
+### 2. Environment Variables
+
+Copy `.env.example` to `.env` and fill at least:
+
+```env
+DATABASE_URL="postgresql://user:pass@localhost:5432/cos"
+NEXTAUTH_SECRET="your-long-random-secret"
+NEXTAUTH_URL="http://localhost:3000"
+
+# Tencent Cloud COS (default)
+COS_SECRET_ID=
+COS_SECRET_KEY=
+COS_BUCKET=
+COS_REGION=
+
+# Optional: dedicated encryption key (strongly recommended in production)
+SETTINGS_ENCRYPT_KEY=
+```
+
+You can also configure storage in the admin panel at runtime.
+
+### 3. Initialize Database
+
+```bash
+npx prisma db push
+npx prisma generate
+npm run db:seed   # optional, creates initial admin
+```
+
+### 4. Run
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000` for the gallery, `/admin/login` for the admin panel.
+
+---
+
+## Storage Providers
+
+Switch in **Admin → Settings → Storage**:
+
+| Provider | Status | Notes |
+|----------|--------|-------|
+| Tencent Cloud COS | ✅ Full | CI thumbnails, styles, watermark, STS |
+| S3-compatible | ✅ Ready | AWS S3 / Cloudflare R2 / MinIO; thumbnails degrade to original or poster |
+| Alibaba Cloud OSS | 🚧 Stub | Not implemented yet |
+
+Object key pattern: `media/YYYY/MM/DD/{timestamp}-{random}.{ext}`
+
+---
+
+## Security Notes
+
+- Bucket must be **private**
+- All media access must go through backend signing (`/api/sign` or gallery API)
+- Production **must** set `NEXTAUTH_SECRET` or `SETTINGS_ENCRYPT_KEY`
+- Enable COS/CDN referer whitelist + reject empty referer
+- Enable usage caps and traffic alerts
+
+---
+
+## Deployment
+
+### Docker Compose (recommended for VPS)
+
+```bash
+docker compose up -d --build
+```
+
+### Vercel
+
+Connect the GitHub repo, set environment variables, and deploy.
+
+---
+
+## Project Structure
+
+```
+app/                  # Next.js App Router pages & API routes
+components/           # Frontend & admin components
+lib/
+  storage/            # Multi-provider storage abstraction (COS / S3 / OSS stub)
+  cos.ts              # Tencent Cloud COS core implementation
+prisma/               # Database schema
+```
+
+---
+
+## License
+
+Private project, for personal use only.
